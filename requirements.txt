@@ -1,0 +1,8 @@
+numpy
+scipy
+pandas
+pyyaml
+opencv-python
+tqdm
+ezc3d
+rich

@@ -1,0 +1,4 @@
+datasets:
+  opencap_root: "/home/<you>/data/OpenCapDataset"
+  gpjatk_root:  "/home/<you>/data/GPJATK"
+outputs_root:   "/home/<you>/gaitlab/outputs"
