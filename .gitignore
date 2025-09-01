@@ -20,3 +20,4 @@ outputs/
 config/paths.yaml
 *.pth
 models/*.pth
+*.h5

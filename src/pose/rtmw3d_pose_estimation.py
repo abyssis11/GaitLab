@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# rtmw3d.py (enhanced)
 """
 Run RTMW3D on videos listed in a manifest (no detector), and write
 preds.jsonl(.gz) + meta.json with fully populated keypoint names/skeleton.
@@ -13,13 +12,15 @@ Key improvements vs your original:
 - Optional gzip output for long videos.
 - meta.json includes extra provenance: root_idx, sigmas, config/ckpt names.
 
-Example run:
-python src/pose/rtmw3d.py \
-  -m manifests/OpenCapDataset/subject2.yaml \
-  -p config/paths.yaml \
-  --trials walking1 \
-  --video-field video_sync \
-  --gzip --stride 1 --amp
+Usage
+-----
+python src/pose/rtmw3d_pose_estimation.py   
+    -m manifests/OpenCapDataset/subject2-2.yaml   \
+    -p config/paths.yaml   \
+    --trials walking1   \
+    --video-field video_sync    \
+    --metainfo-from-file /home/denik/projects/GaitLab/external/datasets_config/h3wb.py   \
+    --debug-metainfo 
 """
 import os
 import cv2
@@ -388,7 +389,14 @@ def main():
     manifest = load_manifest(args.manifest, args.paths)
 
     # Build RTMW3D once
-    register_all_modules()
+    import importlib
+    importlib.import_module('rtmpose3d.rtmpose3d.pose_estimator')
+    importlib.import_module('rtmpose3d.rtmpose3d.rtmw3d_head')
+    importlib.import_module('rtmpose3d.rtmpose3d.loss')           # if used by the config
+    importlib.import_module('rtmpose3d.rtmpose3d.simcc_3d_label')  # if used by the config
+
+    from mmpose.utils import register_all_modules
+    register_all_modules(init_default_scope=True)
     model = init_model(args.config, args.checkpoint, device=args.device)
 
     # Ensure dataset_meta is populated so keypoint_names/skeleton are valid
