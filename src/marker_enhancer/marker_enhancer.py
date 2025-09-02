@@ -16,16 +16,15 @@ What this script does
    - Body inputs: 15 joints * 3 + [height_m, mass_kg] = 47
    - Arms inputs:  7 joints * 3 + [height_m, mass_kg] = 23
 4) Saves a prep cache:
-   - <trial>/rtmw3d_eval/enhancer/enh_input_60hz.npz
+   - <trial>/enhancer/enh_input_60hz.npz
      (t_60, ocap20_names, ocap20_centered_mm, midhip_mm, X_body_47, X_arms_23,
       subject_height_m, subject_mass_kg)
-   - and CSVs with feature rows (optional; always on here for convenience)
+   - and CSVs with feature rows (for convenience)
 5) Optional: runs Marker-Enhancer LSTM models and writes predictions:
-   - <trial>/rtmw3d_eval/enhancer/body_pred_mm_Tx35x3.npz
-   - <trial>/rtmw3d_eval/enhancer/arms_pred_mm_Tx8x3.npz
+   - <trial>/enhancer/body_pred_mm_Tx35x3.npz
+   - <trial>/enhancer/arms_pred_mm_Tx8x3.npz
    (Outputs are de-normalized to mm and re-rooted at mid_hip per-frame.)
-   You can also export TRC for OCAP20 (input) via --write-trc.
-   (TRC export for predicted markers can be added once final marker names are set.)
+   **Now includes names** inside each NPZ under key 'names'.
 
 Notes
 -----
@@ -139,19 +138,23 @@ def compose_ocap20_from_frame(kp_names, kps_xyz_mm, *, warn_once_state):
     def get(n):
         return kps_xyz_mm[name2i[n]] if has(n) else None
 
+    # Upper limbs
     for n in ["left_shoulder","right_shoulder","left_elbow","right_elbow","left_wrist","right_wrist"]:
         v = get(n)
         if v is not None:
             out[n] = v
+    # Lower limbs
     for n in ["left_hip","right_hip","left_knee","right_knee","left_ankle","right_ankle"]:
         v = get(n)
         if v is not None:
             out[n] = v
+    # Feet
     for n in ["left_heel","right_heel","left_small_toe","right_small_toe","left_big_toe","right_big_toe"]:
         v = get(n)
         if v is not None:
             out[n] = v
 
+    # mid_hip
     if "mid_hip" in name2i:
         out["mid_hip"] = get("mid_hip")
     else:
@@ -165,6 +168,7 @@ def compose_ocap20_from_frame(kp_names, kps_xyz_mm, *, warn_once_state):
                 log_warn("Cannot synthesize 'mid_hip' (need both left_hip and right_hip)")
                 warn_once_state["no_mid_hip"] = True
 
+    # neck
     if "neck" in name2i:
         out["neck"] = get("neck")
     else:
@@ -287,6 +291,37 @@ def feature_headers(prefixes, height_weight=True):
     if height_weight:
         cols += ["height_m", "mass_kg"]
     return cols
+
+# ---------- Marker-Enhancer fixed output orders ----------
+# Defaults taken from the repo helper functions (getMarkersAugmenter_*).
+BODY35_DEFAULT = [
+    'RASIS_augmenter','LASIS_augmenter','RPSIS_augmenter','LPSIS_augmenter',
+    'RKnee_augmenter','RMKnee_augmenter','RAnkle_augmenter','RMAnkle_augmenter',
+    'RToe_augmenter','R5meta_augmenter','RCalc_augmenter',
+    'LKnee_augmenter','LMKnee_augmenter','LAnkle_augmenter','LMAnkle_augmenter',
+    'LToe_augmenter','LCalc_augmenter','L5meta_augmenter',
+    'RShoulder_augmenter','LShoulder_augmenter','C7_augmenter',
+    'RThigh1_augmenter','RThigh2_augmenter','RThigh3_augmenter',
+    'LThigh1_augmenter','LThigh2_augmenter','LThigh3_augmenter',
+    'RSh1_augmenter','RSh2_augmenter','RSh3_augmenter',
+    'LSh1_augmenter','LSh2_augmenter','LSh3_augmenter',
+    'RHJC_augmenter','LHJC_augmenter',
+]
+ARMS8_DEFAULT = [
+    'RElbow_augmenter','RMElbow_augmenter','RWrist_augmenter','RMWrist_augmenter',
+    'LElbow_augmenter','LMElbow_augmenter','LWrist_augmenter','LMWrist_augmenter',
+]
+
+def _pick_output_names(meta, default_names, expected_len: int):
+    """Prefer output marker names from model metadata.json if present."""
+    names = None
+    if isinstance(meta, dict):
+        for k in ("response_markers", "output_markers", "marker_names", "names"):
+            v = meta.get(k)
+            if isinstance(v, (list, tuple)) and len(v) == expected_len:
+                names = [str(x) for x in v]
+                break
+    return names or default_names
 
 # ---------- Main ----------
 def main():
@@ -484,8 +519,13 @@ def main():
             Yb = Yb.reshape((-1, 35, 3))                        # (T, 35, 3) normalized (height units)
             # de-normalize and add root back to mm
             Yb_mm = Yb * (float(height_m) * 1000.0) + midhip_mm[:, None, :]
-            np.savez_compressed(enh_dir / "body_pred_mm_Tx35x3.npz",
-                                t_60=t_grid, pred_mm=Yb_mm)
+            body_names = _pick_output_names(body_meta, BODY35_DEFAULT, expected_len=35)
+            np.savez_compressed(
+                enh_dir / "body_pred_mm_Tx35x3.npz",
+                t_60=t_grid,
+                pred_mm=Yb_mm,
+                names=np.array(body_names, dtype=object),
+            )
             log_done("Body model outputs saved (body_pred_mm_Tx35x3.npz)")
 
         # ARMS
@@ -501,8 +541,13 @@ def main():
                 raise RuntimeError(f"Arms model output last dim expected 24, got {Ya.shape[-1]}")
             Ya = Ya.reshape((-1, 8, 3))                         # (T, 8, 3) normalized
             Ya_mm = Ya * (float(height_m) * 1000.0) + midhip_mm[:, None, :]
-            np.savez_compressed(enh_dir / "arms_pred_mm_Tx8x3.npz",
-                                t_60=t_grid, pred_mm=Ya_mm)
+            arms_names = _pick_output_names(arms_meta, ARMS8_DEFAULT, expected_len=8)
+            np.savez_compressed(
+                enh_dir / "arms_pred_mm_Tx8x3.npz",
+                t_60=t_grid,
+                pred_mm=Ya_mm,
+                names=np.array(arms_names, dtype=object),
+            )
             log_done("Arms model outputs saved (arms_pred_mm_Tx8x3.npz)")
 
     log_done("Marker-enhancer prep complete.")
