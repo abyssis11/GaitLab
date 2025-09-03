@@ -68,3 +68,10 @@ trials:
       video_raw:  ${paths.root}/VideoData/Session1/Cam0/walkingTS4/walkingTS4.avi
       mocap_trc:  ${paths.root}/MarkerData/Mocap/walkingTS4.trc
       forces_mot: ${paths.root}/ForceData/walkingTS4_forces.mot
+
+  static:
+    - id: static1
+      video_sync: ${paths.root}/VideoData/Session0/Cam0/static1/static1_syncdWithMocap.avi
+      video_raw:  ${paths.root}/VideoData/Session0/Cam0/static1/static1.avi
+      mocap_trc:  ${paths.root}/MarkerData/Mocap/static1.trc
+      forces_mot: ${paths.root}/ForceData/static1_forces.mot    

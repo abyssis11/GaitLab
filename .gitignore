@@ -21,3 +21,5 @@ config/paths.yaml
 *.pth
 models/*.pth
 *.h5
+requirements2.in
+requirements3.in
