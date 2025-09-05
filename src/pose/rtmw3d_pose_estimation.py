@@ -1,27 +1,45 @@
 #!/usr/bin/env python3
 """
-Run RTMW3D on videos listed in a manifest (no detector), and write
-preds.jsonl(.gz) + meta.json with fully populated keypoint names/skeleton.
+Run RTMW3D on videos listed in a manifest with **good crops** and optional detector,
+then write preds.jsonl(.gz) + meta.json with fully populated keypoint names/skeleton.
 
-Key improvements vs your original:
-- Robustly populates model.dataset_meta using the model config and/or a dataset
-  metainfo file (so keypoint_names won't be null).
-- Explicit full-frame bbox to inference_topdown (no detector).
-- Faster + safer: torch.inference_mode(), optional AMP (CUDA), frame stride.
-- Accurate timestamps using CAP_PROP_POS_MSEC fallback to frame_idx / fps.
-- Optional gzip output for long videos.
-- meta.json includes extra provenance: root_idx, sigmas, config/ckpt names.
+Key fixes & features
+--------------------
+- ✅ **Correct color space**: keep frames in **BGR** for MMPose.
+- ✅ **Tight person crops**:
+  - Optional **MMDetection** person detector (run every N frames), or
+  - **Detector-free** temporal tracking using the keypoint bbox from the previous frame.
+- ✅ **bbox_format='xyxy'** set explicitly for clarity.
+- ✅ `model.eval()` and `torch.inference_mode()` for correctness & speed.
+- ✅ Optional AMP (`--amp`) on CUDA.
+- ✅ Accurate timestamps with fallback to frame_idx / fps.
+- ✅ Optional two-pass refine (`--refine-pass`) to re-run on kp-tightened bbox.
 
-Usage
+Usage examples
+--------------
+# 1) No detector, temporal kp-bbox tracking (fast, works well for single subject)
+python rtmw3d_pose_estimation_fixed.py \
+  -m manifests/OpenCapDataset/subject2-2.yaml -p config/paths.yaml \
+  --trials walking1 --video-field video_sync --stride 1\
+  --metainfo-from-file external/datasets_config/h3wb.py
+
+# 2) With MMDetection person detector every 10 frames (robust to big motion)
+python rtmw3d_pose_estimation_fixed.py \
+  -m manifests/OpenCapDataset/subject2-2.yaml -p config/paths.yaml \
+  --trials walking1 --video-field video_sync \
+  --detector mmdet \
+  --det-config mmdetection/configs/yolo/yolov3_d53_320_273e_coco.py \
+  --det-checkpoint weights/yolov3_d53_320_273e_coco-421362b6.pth \
+  --det-stride 10 --det-score-thr 0.4 --refine-pass
+
+Notes
 -----
-python src/pose/rtmw3d_pose_estimation.py   
-    -m manifests/OpenCapDataset/subject2-2.yaml   \
-    -p config/paths.yaml   \
-    --trials walking1   \
-    --video-field video_sync    \
-    --metainfo-from-file /home/denik/projects/GaitLab/external/datasets_config/h3wb.py   \
-    --debug-metainfo 
+- This script writes **top-down** predictions. `keypoints_xyz` are root-relative,
+  scale-ambiguous; `keypoints_px` are in image pixels.
+- If you don't have MMDetection installed, keep `--detector none` (default) and the
+  tracker will still produce good crops after the first frame.
 """
+
 import os
 import cv2
 import json
@@ -37,17 +55,27 @@ import torch
 from mmengine.config import Config, ConfigDict
 from mmpose.datasets.datasets.utils import parse_pose_metainfo
 from mmpose.apis import inference_topdown, init_model
-from mmpose.utils import register_all_modules
 
 # your loader in a separate file
 from IO.load_manifest import load_manifest
+
+# Optional MMDetection
+_HAS_MMDET = False
+try:
+    from mmdet.apis import init_detector as mmdet_init_detector
+    from mmdet.apis import inference_detector as mmdet_inference_detector
+    _HAS_MMDET = True
+except Exception:
+    _HAS_MMDET = False
 
 
 # ----------------------------
 # Helpers
 # ----------------------------
+
 def _norm_key(k: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(k).lower())
+
 
 def _dig(d, keys_norm):
     """Find first value in possibly nested dict `d` whose normalized key is in keys_norm.
@@ -65,6 +93,7 @@ def _dig(d, keys_norm):
                 return got
     return None
 
+
 def _parse_number_with_units(x):
     if x is None:
         return None, None
@@ -79,13 +108,11 @@ def _parse_number_with_units(x):
             return val, unit
     return None, None
 
+
 def extract_subject_from_session_metadata(session_meta: dict):
-    """Return dict with keys: sex, height_m, mass_kg if discoverable.
-    Heuristics handle cm/mm/g units and common key aliases."""
     out = {"sex": None, "height_m": None, "mass_kg": None}
     if not isinstance(session_meta, dict):
         return out
-
     # sex / gender
     sex_raw = _dig(session_meta, {"sex", "gender", "biologicalsex"})
     if sex_raw is not None:
@@ -96,40 +123,38 @@ def extract_subject_from_session_metadata(session_meta: dict):
             out["sex"] = "female"
         else:
             out["sex"] = str(sex_raw)
-
-    # height -> meters (accept m / cm / mm or bare numbers)
+    # height -> meters
     h_raw = _dig(session_meta, {"heightm", "height", "stature", "bodyheight", "bodyheightm", "staturem", "bodyheightmeter"})
     hv, hu = _parse_number_with_units(h_raw)
     if hv is not None:
         height_m = None
         if hu in {"m", None}:
-            if hu == "m" or (0.5 <= hv <= 2.6):        # looks like meters
+            if hu == "m" or (0.5 <= hv <= 2.6):
                 height_m = hv
-            elif 50.0 <= hv <= 260.0:                   # likely centimeters
+            elif 50.0 <= hv <= 260.0:
                 height_m = hv / 100.0
-            elif 500.0 <= hv <= 2600.0:                 # likely millimeters
+            elif 500.0 <= hv <= 2600.0:
                 height_m = hv / 1000.0
         elif hu == "cm":
             height_m = hv / 100.0
         elif hu == "mm":
             height_m = hv / 1000.0
         out["height_m"] = height_m
-
-    # mass -> kg (accept kg / g or bare numbers)
-    m_raw = _dig(session_meta, {"masskg","mass","weightkg","weight","bodymass","bodyweight","bodymasskg"})
+    # mass -> kg
+    m_raw = _dig(session_meta, {"masskg", "mass", "weightkg", "weight", "bodymass", "bodyweight", "bodymasskg"})
     mv, mu = _parse_number_with_units(m_raw)
     if mv is not None:
         mass_kg = None
         if mu in {"kg", None}:
-            if mu == "kg" or (20.0 <= mv <= 300.0):     # reasonable adult mass in kg
+            if mu == "kg" or (20.0 <= mv <= 300.0):
                 mass_kg = mv
-            elif 20000.0 <= mv <= 300000.0:             # grams accidentally
+            elif 20000.0 <= mv <= 300000.0:
                 mass_kg = mv / 1000.0
         elif mu == "g":
             mass_kg = mv / 1000.0
         out["mass_kg"] = mass_kg
-
     return out
+
 
 def np_to_py(x):
     if x is None:
@@ -142,9 +167,7 @@ def np_to_py(x):
     return x.tolist()
 
 
-
 def to_jsonable(obj):
-    """Recursively convert numpy/Path/etc. to JSON-serializable Python types."""
     import numpy as _np
     from pathlib import Path as _Path
     if isinstance(obj, dict):
@@ -163,7 +186,6 @@ def to_jsonable(obj):
 def get_keypoint_names(dataset_meta: dict):
     if not isinstance(dataset_meta, dict):
         return None
-    # Preferred: keypoint_info (dict or list)
     kinfo = dataset_meta.get('keypoint_info')
     if isinstance(kinfo, dict):
         names = [None] * len(kinfo)
@@ -172,7 +194,6 @@ def get_keypoint_names(dataset_meta: dict):
         return names
     if isinstance(kinfo, list):
         return [e['name'] for e in sorted(kinfo, key=lambda x: x['id'])]
-    # Fallbacks occasionally seen
     id2name = dataset_meta.get('keypoint_id2name')
     if isinstance(id2name, (list, tuple)):
         return list(id2name)
@@ -216,22 +237,14 @@ def open_video(path: str):
     return cap, float(fps)
 
 
-def whole_frame_bboxes(img: np.ndarray) -> np.ndarray:
-    h, w = img.shape[:2]
-    # MMPose expects xyxy by default
-    return np.array([[0.0, 0.0, float(w - 1), float(h - 1)]], dtype=np.float32)
-
-
 # ----------------------------
 # Dataset metainfo resolution
 # ----------------------------
 
 import importlib.util as _importlib_util
 
+
 def _load_dataset_info_py(py_path: str):
-    """Load a dataset_info dict by executing a metainfo .py file (like h3wb.py).
-    Returns None if the file can't be loaded or doesn't define dataset_info.
-    """
     try:
         spec = _importlib_util.spec_from_file_location("_mmpose_metainfo_tmp", py_path)
         if spec is None or spec.loader is None:
@@ -248,7 +261,6 @@ def _names_from_dataset_info(dataset_info: dict):
         return None
     kinfo = dataset_info.get('keypoint_info')
     if isinstance(kinfo, dict) and kinfo:
-        # Build by id to ensure correct order
         try:
             K = 1 + max(int(v['id']) for v in kinfo.values())
             names = [None] * K
@@ -261,20 +273,15 @@ def _names_from_dataset_info(dataset_info: dict):
             pass
     return None
 
-# ----------------------------
-# Dataset metainfo resolution
-# ----------------------------
 
 def resolve_dataset_meta(args, model):
     """Populate model.dataset_meta so names/skeleton are never None.
     Priority: --metainfo-from-file > config.metainfo/dataloader.metainfo > fallback.
-    Adds verbose logging to help diagnose missing names.
     """
     def log(*x):
         if getattr(args, 'debug_metainfo', False):
             print('[META]', *x)
 
-    # If already set with keypoint_info, keep it
     dm = getattr(model, 'dataset_meta', None)
     names = get_keypoint_names(dm or {})
     if names:
@@ -296,42 +303,37 @@ def resolve_dataset_meta(args, model):
 
     metainfo_src = None
 
-    # Highest priority: explicit CLI
     if getattr(args, 'metainfo_from_file', None):
         metainfo_src = dict(from_file=str(Path(args.metainfo_from_file).resolve()))
         log('using --metainfo-from-file =', metainfo_src['from_file'])
     else:
-        # First non-empty candidate
         for c in candidates:
             if c:
                 metainfo_src = dict(c)
                 break
-        # Resolve relative from_file against config dir
         if metainfo_src and 'from_file' in metainfo_src:
             base = Path(args.config).resolve().parent
             p = Path(metainfo_src['from_file'])
             metainfo_src['from_file'] = str((base / p).resolve())
             log('metainfo from config =', metainfo_src['from_file'])
 
-    # Try parse if we have a source
     if metainfo_src:
         model.dataset_meta = parse_pose_metainfo(metainfo_src)
         dm = model.dataset_meta
         names = get_keypoint_names(dm or {})
-        log('parsed metainfo keys =', sorted(list((dm or {}).keys())))
         if names:
             log('extracted keypoint_names K =', len(names))
             return dm
         else:
-            log('no keypoint_names in provided metainfo; will try WholeBody fallback if appropriate')
+            log('no keypoint_names in provided metainfo; considering WholeBody fallback')
 
-    # Fallback: if dataset looks like WholeBody-133 (H3WB etc.), try coco_wholebody.py
+    # WholeBody fallback (common for H3WB)
     def find_coco_wholebody_py():
         try:
-            import mmpose, os
-            pkg = os.path.dirname(mmpose.__file__)
-            p = os.path.join(pkg, 'configs', '_base_', 'datasets', 'coco_wholebody.py')
-            return p if os.path.isfile(p) else None
+            import mmpose, os as _os
+            pkg = _os.path.dirname(mmpose.__file__)
+            p = _os.path.join(pkg, 'configs', '_base_', 'datasets', 'coco_wholebody.py')
+            return p if _os.path.isfile(p) else None
         except Exception:
             return None
 
@@ -341,23 +343,62 @@ def resolve_dataset_meta(args, model):
     if looks_wholebody:
         cw_path = find_coco_wholebody_py()
         if cw_path:
-            log('fallback to coco_wholebody metainfo at', cw_path)
             model.dataset_meta = parse_pose_metainfo(dict(from_file=cw_path))
             return model.dataset_meta
         else:
-            warnings.warn(
-                'Keypoint names missing. Could not auto-find coco_wholebody.py in your site-packages.'
-                'Please pass --metainfo-from-file /ABS/PATH/to/mmpose/configs/_base_/datasets/coco_wholebody.py',
-                RuntimeWarning)
+            warnings.warn('Keypoint names missing and WholeBody metainfo not auto-found. Please pass --metainfo-from-file.', RuntimeWarning)
             return dm
 
-    # Nothing else we can do
-    warnings.warn(
-        'No dataset metainfo with keypoint names found. meta.json will have keypoint_names=null.'
-        'Pass --metainfo-from-file to a dataset metainfo that contains keypoint_info.',
-        RuntimeWarning,
-    )
+    warnings.warn('No dataset metainfo with keypoint names found. meta.json will have keypoint_names=null. Pass --metainfo-from-file.', RuntimeWarning)
     return dm
+
+
+# ----------------------------
+# BBox helpers (detector + tracker)
+# ----------------------------
+
+def _xyxy_from_keypoints(kp_px, img_w, img_h, pad=0.2, min_side=128):
+    kp = np.asarray(kp_px)
+    vis = np.isfinite(kp).all(axis=1)
+    if not vis.any():
+        return None
+    x1, y1 = kp[vis].min(axis=0)
+    x2, y2 = kp[vis].max(axis=0)
+    w = x2 - x1
+    h = y2 - y1
+    pad_x = max(pad * w, (min_side - w) / 2)
+    pad_y = max(pad * h, (min_side - h) / 2)
+    x1 = float(max(0, x1 - pad_x)); y1 = float(max(0, y1 - pad_y))
+    x2 = float(min(img_w - 1, x2 + pad_x)); y2 = float(min(img_h - 1, y2 + pad_y))
+    return np.array([x1, y1, x2, y2], dtype=np.float32)
+
+
+def _heuristic_center_crop(h, w):
+    side = int(0.9 * min(h, w))
+    cx, cy = w // 2, int(h * 0.55)  # bias lower for gait
+    x1 = max(0, cx - side // 2)
+    y1 = max(0, cy - int(side * 0.6))
+    x2 = min(w - 1, x1 + side)
+    y2 = min(h - 1, y1 + int(side * 1.2))
+    return np.array([x1, y1, x2, y2], dtype=np.float32)
+
+
+def _pick_det_bbox(dets_xyxy, scores, img_shape, prev_bbox=None):
+    """Pick one bbox from mmdet outputs. Prefer near previous center; else largest area."""
+    H, W = img_shape[:2]
+    if dets_xyxy.size == 0:
+        return None
+    if prev_bbox is not None:
+        pcx = 0.5 * (prev_bbox[0] + prev_bbox[2])
+        pcy = 0.5 * (prev_bbox[1] + prev_bbox[3])
+        centers = 0.5 * (dets_xyxy[:, :2] + dets_xyxy[:, 2:])
+        d2 = (centers[:, 0] - pcx) ** 2 + (centers[:, 1] - pcy) ** 2
+        idx = int(np.argmin(d2))
+        return dets_xyxy[idx]
+    # largest area
+    areas = (dets_xyxy[:, 2] - dets_xyxy[:, 0]) * (dets_xyxy[:, 3] - dets_xyxy[:, 1])
+    idx = int(np.argmax(areas))
+    return dets_xyxy[idx]
 
 
 # ----------------------------
@@ -365,7 +406,7 @@ def resolve_dataset_meta(args, model):
 # ----------------------------
 
 def main():
-    ap = argparse.ArgumentParser(description="Run RTMW3D on videos listed in a manifest (no detector).")
+    ap = argparse.ArgumentParser(description="Run RTMW3D on videos listed in a manifest (tight crops; optional detector).")
     ap.add_argument("-m", "--manifest", required=True, help="Path to manifest.yaml")
     ap.add_argument("-p", "--paths", required=True, help="Path to paths.yaml")
     ap.add_argument("--subset", choices=["healthy", "pathological", "static", "all"], default="all")
@@ -377,27 +418,40 @@ def main():
     ap.add_argument("--metainfo-from-file", default=None, help="Absolute path to dataset metainfo .py (e.g., cocktail14.py)")
     ap.add_argument("--outputs-root", default=None, help="Override outputs root if manifest.output_dir is absent")
     ap.add_argument("--print-every", type=int, default=50)
+
     # Performance / IO
     ap.add_argument("--stride", type=int, default=1, help="Process every Nth frame")
     ap.add_argument("--min-mean-score", type=float, default=0.0, help="Drop persons below this mean keypoint score")
     ap.add_argument("--gzip", action="store_true", help="Write preds.jsonl.gz instead of plain jsonl")
     ap.add_argument("--amp", action="store_true", help="CUDA only: mixed-precision inference")
     ap.add_argument("--debug-metainfo", action="store_true", help="Print detailed metainfo resolution logs")
+
+    # Detector options
+    ap.add_argument("--detector", choices=["none", "mmdet"], default="none")
+    ap.add_argument("--det-config", default=None, help="MMDetection config for person detector")
+    ap.add_argument("--det-checkpoint", default=None, help="MMDetection checkpoint for person detector")
+    ap.add_argument("--det-score-thr", type=float, default=0.3, help="Score threshold for person detections")
+    ap.add_argument("--det-stride", type=int, default=8, help="Run detector every N frames (tracking in between)")
+
+    # Refinement
+    ap.add_argument("--refine-pass", action="store_true", help="Re-run pose on kp-tightened bbox for better crops")
+
     args = ap.parse_args()
 
     # Load and resolve the manifest via your loader
     manifest = load_manifest(args.manifest, args.paths)
-    
+
     # Build RTMW3D once
     import importlib
     importlib.import_module('rtmpose3d.rtmpose3d.pose_estimator')
     importlib.import_module('rtmpose3d.rtmpose3d.rtmw3d_head')
-    importlib.import_module('rtmpose3d.rtmpose3d.loss')           # if used by the config
-    importlib.import_module('rtmpose3d.rtmpose3d.simcc_3d_label')  # if used by the config
+    importlib.import_module('rtmpose3d.rtmpose3d.loss')
+    importlib.import_module('rtmpose3d.rtmpose3d.simcc_3d_label')
 
     from mmpose.utils import register_all_modules
     register_all_modules(init_default_scope=True)
     model = init_model(args.config, args.checkpoint, device=args.device)
+    model.eval()
 
     # Ensure dataset_meta is populated so keypoint_names/skeleton are valid
     dataset_meta = resolve_dataset_meta(args, model) or {}
@@ -409,18 +463,22 @@ def main():
         alt_names = _names_from_dataset_info(alt_di)
         if alt_names:
             kp_names = alt_names
-            if args.debug_metainfo:
-                print('[META] keypoint_names extracted directly from', args.metainfo_from_file, f'(K={len(kp_names)})')
-        elif args.debug_metainfo:
-            print('[META] could not extract names from', args.metainfo_from_file)
 
-    # Write meta (names/skeleton) once per subject/session/camera tree
-    # (kp_names was resolved above)
     skeleton = (
         dataset_meta.get('skeleton_links')
         or dataset_meta.get('skeleton_info')
         or dataset_meta.get('skeleton')
     )
+
+    # Optional detector
+    det_model = None
+    if args.detector == 'mmdet':
+        if not _HAS_MMDET:
+            warnings.warn('MMDetection not installed; falling back to detector=none', RuntimeWarning)
+        elif not (args.det_config and args.det_checkpoint):
+            warnings.warn('Detector config/checkpoint not provided; falling back to detector=none', RuntimeWarning)
+        else:
+            det_model = mmdet_init_detector(args.det_config, args.det_checkpoint, device=args.device)
 
     wrote_meta_roots = set()
 
@@ -443,7 +501,6 @@ def main():
             meta_root = meta_path.parent
             if str(meta_root) not in wrote_meta_roots:
                 ensure_dir(meta_root)
-                # Load session metadata (path or dict) to auto-fill subject info
                 session_meta_src = manifest.get("session_metadata")
                 session_meta = None
                 if isinstance(session_meta_src, (str, os.PathLike)) and Path(session_meta_src).exists():
@@ -451,8 +508,7 @@ def main():
                         with open(session_meta_src, 'r', encoding='utf-8') as sf:
                             session_meta = yaml.safe_load(sf)
                     except Exception as e:
-                        if args.debug_metainfo:
-                            print('[META] failed to read session_metadata:', e)
+                        print('[META] failed to read session_metadata:', e)
                 elif isinstance(session_meta_src, dict):
                     session_meta = session_meta_src
 
@@ -485,7 +541,6 @@ def main():
                     json.dump(to_jsonable(meta_payload), mf, indent=2)
                 wrote_meta_roots.add(str(meta_root))
 
-            # Open video
             cap, fps_file = open_video(vid_path)
             fps_manifest = manifest.get('fps_video', 'auto')
             fps = float(fps_file) if (fps_manifest == 'auto') else float(fps_manifest)
@@ -498,49 +553,150 @@ def main():
                        if (args.amp and isinstance(args.device, str) and args.device.startswith("cuda"))
                        else nullcontext())
 
+            prev_bbox_xyxy = None
+            pad = 0.2
+            min_side = 128
+
             with open_fn(out_path, "wt") as f, torch.inference_mode():
                 while True:
                     ok, frame_bgr = cap.read()
                     if not ok:
                         break
 
-                    # Skip by stride
                     if frame_idx % args.stride != 0:
                         frame_idx += 1
                         continue
 
-                    # Prefer accurate timestamps (VFR-safe)
+                    # Timestamp (VFR-safe when POS_MSEC is valid)
                     pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
                     time_sec = (pos_msec / 1000.0) if (pos_msec and not np.isnan(pos_msec) and pos_msec > 0) else (frame_idx / fps)
 
-                    frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                    bboxes = whole_frame_bboxes(frame_rgb)
+                    H, W = frame_bgr.shape[:2]
 
+                    # --- Pick bbox ---
+                    bbox_xyxy = None
+
+                    # 1) Detector (periodic)
+                    use_detector = det_model is not None and (frame_idx % max(1, args.det_stride) == 0)
+                    if use_detector:
+                        det_out = mmdet_inference_detector(det_model, frame_bgr)
+                        # MMDet returns list per class or DetDataSample depending on version
+                        det_bboxes = []
+                        det_scores = []
+                        try:
+                            # new-style: DetDataSample
+                            pred_instances = det_out.pred_instances
+                            b = pred_instances.bboxes.cpu().numpy()
+                            s = pred_instances.scores.cpu().numpy()
+                            l = pred_instances.labels.cpu().numpy()
+                            person_mask = (l == 0)  # COCO: class 0 = person
+                            b = b[person_mask]; s = s[person_mask]
+                            keep = s >= float(args.det_score_thr)
+                            det_bboxes = b[keep]
+                            det_scores = s[keep]
+                        except Exception:
+                            # old-style: list of arrays per class
+                            try:
+                                person_dets = det_out[0]  # class 0
+                                person_dets = np.asarray(person_dets)
+                                if person_dets.size > 0:
+                                    det_bboxes = person_dets[:, :4]
+                                    det_scores = person_dets[:, 4]
+                                    keep = det_scores >= float(args.det_score_thr)
+                                    det_bboxes = det_bboxes[keep]
+                                    det_scores = det_scores[keep]
+                            except Exception:
+                                det_bboxes = []
+                                det_scores = []
+
+                        if isinstance(det_bboxes, np.ndarray) and det_bboxes.size > 0:
+                            bbox_xyxy = _pick_det_bbox(det_bboxes, det_scores, frame_bgr.shape, prev_bbox=prev_bbox_xyxy)
+
+                    # 2) Tracker (prev kp-bbox)
+                    if bbox_xyxy is None and prev_bbox_xyxy is not None:
+                        bbox_xyxy = prev_bbox_xyxy.copy()
+
+                    # 3) First-frame heuristic
+                    if bbox_xyxy is None:
+                        bbox_xyxy = _heuristic_center_crop(H, W)
+
+                    # --- Pose inference (first pass) ---
                     with amp_ctx:
-                        results = inference_topdown(model, frame_rgb, bboxes=bboxes)
+                        results = inference_topdown(model, frame_bgr, bboxes=bbox_xyxy[None, :], bbox_format='xyxy')
 
                     persons = []
+                    best_kp_for_refine = None
+                    best_score_for_refine = -1.0
+
                     if results:
                         ds = results[0]
                         pred = ds.pred_instances
-                        kps_xyz = getattr(pred, 'keypoints', None)                # (P, K, 3)
-                        scores = getattr(pred, 'keypoint_scores', None)           # (P, K)
-                        kps_px = getattr(pred, 'transformed_keypoints', None)     # (P, K, 2)
+                        kps_xyz = getattr(pred, 'keypoints', None)
+                        scores = getattr(pred, 'keypoint_scores', None)
+                        kps_px = getattr(pred, 'transformed_keypoints', None)
 
                         if kps_xyz is not None:
                             kps_xyz = np.asarray(kps_xyz)
                             P = kps_xyz.shape[0]
+                            # choose best person for tracking/refine
+                            scores_np = np.asarray(scores) if scores is not None else None
                             for p in range(P):
-                                mean_score = float(np.asarray(scores)[p].mean()) if scores is not None else 1.0
+                                mean_score = float(scores_np[p].mean()) if scores_np is not None else 1.0
                                 if mean_score < args.min_mean_score:
                                     continue
+                                px = np.asarray(kps_px)[p] if kps_px is not None else None
                                 persons.append({
                                     "keypoints_xyz": np_to_py(kps_xyz[p]),
-                                    "keypoint_scores": np_to_py(np.asarray(scores)[p]) if scores is not None else None,
-                                    "keypoints_px": np_to_py(np.asarray(kps_px)[p]) if kps_px is not None else None,
+                                    "keypoint_scores": np_to_py(scores_np[p]) if scores_np is not None else None,
+                                    "keypoints_px": np_to_py(px) if px is not None else None,
                                     "mean_score": mean_score,
                                 })
+                                if px is not None and mean_score > best_score_for_refine:
+                                    best_score_for_refine = mean_score
+                                    best_kp_for_refine = px
 
+                    # --- Optional refine pass with kp-tightened bbox ---
+                    if args.refine_pass and best_kp_for_refine is not None:
+                        rb = _xyxy_from_keypoints(best_kp_for_refine, W, H, pad=pad, min_side=min_side)
+                        if rb is not None:
+                            with amp_ctx:
+                                results2 = inference_topdown(model, frame_bgr, bboxes=rb[None, :], bbox_format='xyxy')
+                            persons = []
+                            if results2:
+                                ds2 = results2[0]
+                                pred2 = ds2.pred_instances
+                                kps_xyz2 = getattr(pred2, 'keypoints', None)
+                                scores2 = getattr(pred2, 'keypoint_scores', None)
+                                kps_px2 = getattr(pred2, 'transformed_keypoints', None)
+                                if kps_xyz2 is not None:
+                                    kps_xyz2 = np.asarray(kps_xyz2)
+                                    P2 = kps_xyz2.shape[0]
+                                    scores2_np = np.asarray(scores2) if scores2 is not None else None
+                                    for p in range(P2):
+                                        mean_score = float(scores2_np[p].mean()) if scores2_np is not None else 1.0
+                                        if mean_score < args.min_mean_score:
+                                            continue
+                                        px2 = np.asarray(kps_px2)[p] if kps_px2 is not None else None
+                                        persons.append({
+                                            "keypoints_xyz": np_to_py(kps_xyz2[p]),
+                                            "keypoint_scores": np_to_py(scores2_np[p]) if scores2_np is not None else None,
+                                            "keypoints_px": np_to_py(px2) if px2 is not None else None,
+                                            "mean_score": mean_score,
+                                        })
+                                    # update best_kp_for_refine for tracking
+                                    if kps_px2 is not None and len(kps_px2) > 0:
+                                        best_kp_for_refine = np.asarray(kps_px2)[int(np.argmax([pp['mean_score'] for pp in persons]))]
+                                        rb2 = _xyxy_from_keypoints(best_kp_for_refine, W, H, pad=pad, min_side=min_side)
+                                        if rb2 is not None:
+                                            prev_bbox_xyxy = rb2
+
+                    # If no refine or refine not triggered, still update tracker bbox
+                    if prev_bbox_xyxy is None and best_kp_for_refine is not None:
+                        tb = _xyxy_from_keypoints(best_kp_for_refine, W, H, pad=pad, min_side=min_side)
+                        if tb is not None:
+                            prev_bbox_xyxy = tb
+
+                    # Write output
                     f.write(json.dumps({
                         "trial_id": trial["id"],
                         "subset": subset_name2,
