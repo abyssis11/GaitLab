@@ -137,6 +137,29 @@ def default_augmenter_to_osim_map() -> dict[str, str]:
         "LHJC_augmenter": "LHJC_study",
     }
 
+def read_trc_times(trc_path: Path):
+    """Return a numpy array of the Time column in the TRC."""
+    import numpy as _np
+    rows = Path(trc_path).read_text(encoding='utf-8', errors='ignore').splitlines()
+    # TRC format: names on line 3 (0-based), components on line 4, data from line 5
+    if len(rows) < 6:
+        raise RuntimeError(f"TRC too short: {trc_path}")
+    # Data begins at line index 5
+    times = []
+    for ln in rows[5:]:
+        if not ln.strip():
+            continue
+        parts = ln.split()
+        # parts[1] is Time
+        try:
+            times.append(float(parts[1]))
+        except Exception:
+            pass
+    if not times:
+        raise RuntimeError(f"No time samples found in TRC: {trc_path}")
+    return _np.array(times, dtype=float)
+
+
 # ---- Paths: mirror your other scripts ----
 
 def decide_trial_root(manifest: dict, trial: dict, outputs_root_cli: str | None):
@@ -291,17 +314,14 @@ def run_rtmw3d_pose(manifest, paths, trial_id, device="cuda:0",
                     config=None, checkpoint=None, video_field="video_sync",
                     metainfo_from_file=None, outputs_root=None):
     exe = shutil.which("python") or "python"
-    script = Path(__file__).parent / "rtmw3d_pose_estimation.py"
-    if not script.exists():
-        alt = Path(__file__).parent / "rtmw3d.py"
-        script = alt if alt.exists() else script
+    script = "src/pose/rtmw3d_pose_estimation.py"
     cmd = [exe, str(script),
            "-m", str(manifest),
            "-p", str(paths),
            "--subset", "all",
            "--trials", trial_id,
            "--video-field", video_field,
-           "--device", device]
+           "--metainfo-from-file", "/home/denik/projects/GaitLab/external/datasets_config/h3wb.py"]
     if outputs_root: cmd += ["--outputs-root", str(outputs_root)]
     if config:       cmd += ["--config", str(config)]
     if checkpoint:   cmd += ["--checkpoint", str(checkpoint)]
@@ -312,7 +332,7 @@ def run_height_scale(manifest, paths, trial_id, outputs_root=None,
                      height_mm=None, head="nose",
                      foot="left_heel,right_heel,left_big_toe,right_big_toe,left_ankle,right_ankle"):
     exe = shutil.which("python") or "python"
-    script = Path(__file__).parent / "rtmw3d_scale_from_height.py"
+    script = "src/pose/rtmw3d_scale_from_height.py"
     cmd = [exe, str(script),
            "-m", str(manifest),
            "-p", str(paths),
@@ -325,7 +345,7 @@ def run_height_scale(manifest, paths, trial_id, outputs_root=None,
 def run_marker_enhancer(manifest, paths, trial_id, outputs_root=None,
                         body_model=None, arms_model=None, output_rate=60.0):
     exe = shutil.which("python") or "python"
-    script = Path(__file__).parent / "marker_enhancer.py"
+    script = "src/marker_enhancer/marker_enhancer.py"
     cmd = [exe, str(script),
            "-m", str(manifest),
            "-p", str(paths),
@@ -339,7 +359,8 @@ def run_marker_enhancer(manifest, paths, trial_id, outputs_root=None,
 # ---- OpenSim Scale/Visualize (optional) ----
 
 def try_opensim_scale(model_path: Path, trc_path: Path, out_dir: Path,
-                      mass_kg: float | None, visualize: bool):
+                      mass_kg: float | None, visualize: bool,
+                      marker_set_xml: Path | None = None):
     try:
         import opensim as osim
     except Exception as e:
@@ -352,22 +373,37 @@ def try_opensim_scale(model_path: Path, trc_path: Path, out_dir: Path,
     if mass_kg and mass_kg > 0:
         scale.setSubjectMass(float(mass_kg))
 
-    # Model maker
-    scale.getGenericModelMaker().setModelFileName(str(model_path))
+    # ---- GenericModelMaker ----
+    gmm = scale.getGenericModelMaker()
+    gmm.setModelFileName(str(model_path))
+    if marker_set_xml:
+        p = Path(marker_set_xml)
+        if p.exists():
+            log_info(f"Using marker set XML: {p}")
+            gmm.setMarkerSetFileName(str(p))
+        else:
+            log_warn(f"Marker set XML not found: {p}")
 
-    # ModelScaler: scale by marker distances in the static TRC
+    # ---- Determine time range from TRC ----
+    ts = read_trc_times(trc_path)
+    t0, t1 = float(ts.min()), float(ts.max())
+    if not (t1 > t0):
+        # Expand by a tiny epsilon (or your frame dt if you prefer)
+        eps = 1e-6
+        t1 = t0 + eps
+    arr = osim.ArrayDouble(); arr.append(t0); arr.append(t1)
+
+    # ---- ModelScaler ----
     ms = scale.getModelScaler()
     ms.setApply(True)
-    ms.setMarkerFileName(str(trc_path))
-    arr = osim.ArrayDouble()
-    arr.append(0.0); arr.append(0.0)  # single-frame
+    ms.setMarkerFileName(str(trc_path))  # marker trajectories (TRC)
     ms.setTimeRange(arr)
     ms.setOutputModelFileName(str(out_dir / "scaled_model.osim"))
 
-    # MarkerPlacer: place model markers onto data
+    # ---- MarkerPlacer ----
     mp = scale.getMarkerPlacer()
     mp.setApply(True)
-    mp.setStaticPoseFileName(str(trc_path))
+    mp.setStaticPoseFileName(str(trc_path))  # static pose TRC (now 2 frames)
     mp.setTimeRange(arr)
     mp.setOutputModelFileName(str(out_dir / "scaled_marker_placed.osim"))
     mp.setOutputMarkerFileName(str(out_dir / "placed_markers.trc"))
@@ -377,19 +413,29 @@ def try_opensim_scale(model_path: Path, trc_path: Path, out_dir: Path,
     scale.run()
 
     if visualize:
+        import os
+        # Clean up env that can break Mesa inside conda
+        for var in ["LD_PRELOAD", "LIBGL_DRIVERS_PATH", "MESA_LOADER_DRIVER_OVERRIDE", "LIBGL_ALWAYS_INDIRECT"]:
+            os.environ.pop(var, None)
+
+        # First run: prove it works with software rendering (safe on WSLg)
+        os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
+
         log_step("Launching OpenSim visualizer (scaled_marker_placed.osim)")
         model = osim.Model(str(out_dir / "scaled_marker_placed.osim"))
         model.setUseVisualizer(True)
         state = model.initSystem()
-        time.sleep(0.5)
+        import time as _time
+        _time.sleep(0.5)
         print("[INFO] Close the visualizer window or Ctrl-C to quit.")
         try:
             while True:
-                time.sleep(0.2)
+                _time.sleep(0.2)
         except KeyboardInterrupt:
             pass
 
     return True
+
 
 # ---- Main ----
 
@@ -417,6 +463,7 @@ def main():
 
     # Optional OpenSim
     ap.add_argument("--opensim-model", default=None, help="Path to base OpenSim model (.osim)")
+    ap.add_argument("--marker-set-xml", default=None, help="OpenSim MarkerSet XML to use during scaling/placement")
     ap.add_argument("--run-opensim", action="store_true", help="Run OpenSim ScaleTool")
     ap.add_argument("--visualize", action="store_true", help="Visualize the scaled model (OpenSim visualizer)")
 
@@ -488,6 +535,11 @@ def main():
     # Collapse to one static pose
     X1 = collapse_static_pose(X_all, mode=args.collapse)  # (1, M, 3)
     t1 = np.array([0.0], dtype=float)
+    if X1.shape[0] == 1:
+        dt = 1.0 / float(args.fps_trc)
+        X1 = np.concatenate([X1, X1], axis=0)  # duplicate the static frame
+        t1 = np.array([0.0, dt], dtype=float)
+        log_info(f"Static TRC duplicated to two frames at t=[0.0, {dt:.6f}] s for OpenSim.")
     base = args.out_name
 
     # Write native-name TRC
@@ -545,7 +597,7 @@ def main():
             log_err("--run-opensim requires --opensim-model")
         else:
             ok = try_opensim_scale(Path(args.opensim_model), trc_renamed, os_dir,
-                                   mass_kg=subj_mass, visualize=args.visualize)
+                                   mass_kg=subj_mass, visualize=args.visualize, marker_set_xml=Path(args.marker_set_xml))
             if ok:
                 log_done("OpenSim scaling completed.")
             else:

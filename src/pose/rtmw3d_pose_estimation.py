@@ -368,7 +368,7 @@ def main():
     ap = argparse.ArgumentParser(description="Run RTMW3D on videos listed in a manifest (no detector).")
     ap.add_argument("-m", "--manifest", required=True, help="Path to manifest.yaml")
     ap.add_argument("-p", "--paths", required=True, help="Path to paths.yaml")
-    ap.add_argument("--subset", choices=["healthy", "pathological", "all"], default="all")
+    ap.add_argument("--subset", choices=["healthy", "pathological", "static", "all"], default="all")
     ap.add_argument("--trials", type=str, default=None, help="Comma-separated trial IDs (default: all)")
     ap.add_argument("--video-field", choices=["video_sync", "video_raw"], default="video_sync")
     ap.add_argument("--device", default="cuda:0", help="cuda:0 or cpu")
@@ -387,7 +387,7 @@ def main():
 
     # Load and resolve the manifest via your loader
     manifest = load_manifest(args.manifest, args.paths)
-
+    
     # Build RTMW3D once
     import importlib
     importlib.import_module('rtmpose3d.rtmpose3d.pose_estimator')
