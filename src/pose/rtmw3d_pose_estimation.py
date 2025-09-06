@@ -21,7 +21,7 @@ Usage examples
 python src/pose/rtmw3d_pose_estimation.py \
   -m manifests/OpenCapDataset/subject2-2.yaml -p config/paths.yaml \
   --trials walking1 --video-field video_sync --stride 1\
-  --metainfo-from-file external/datasets_config/h3wb.py
+  --metainfo-from-file external/datasets_config/h3wb.py --refine-pass
 
 # 2) With MMDetection person detector every 10 frames (robust to big motion)
 python rtmw3d_pose_estimation_fixed.py \

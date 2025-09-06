@@ -24,7 +24,7 @@ center+scale fit to the image.
 
 Usage
 -----
-python viz_marker_enhancer_on_video.py \
+python src/visualizations/viz_marker_enhancer_on_video.py \
   -m manifests/OpenCapDataset/subject2.yaml \
   -p config/paths.yaml \
   --trial walking1 \
