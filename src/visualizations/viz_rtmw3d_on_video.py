@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # viz_rtmw3d_on_video.py
 """
-Visualize RTMW3D 2D keypoints for a single video frame.
+Visualize RTMW3D keypoints for a single video frame (2D px or 3D-mm projected).
 
 What it does
 ------------
@@ -95,6 +95,20 @@ OCAP20_EDGES = [
 # ---------------------------
 # JSONL readers (robust to slight schema variants)
 # ---------------------------
+
+def _extract_keypoints_xyz_mm(p: dict):
+    """Return an (N,3) float numpy array of 3D keypoints in millimeters if present, else None."""
+    candidates = ["keypoints_xyz_mm", "kps3d_mm", "pose3d_mm", "xyz_mm"]
+    for k in candidates:
+        if k not in p or p[k] is None:
+            continue
+        a = np.asarray(p[k], dtype=float)
+        if a.ndim == 2 and a.shape[1] == 3:
+            return a
+        if a.ndim == 1 and a.size % 3 == 0:
+            return a.reshape(-1, 3)
+    return None
+
 
 def _extract_person_list(rec: dict):
     """Return a list of person dicts from a jsonl record, trying common keys."""
@@ -203,7 +217,8 @@ def read_jsonl_find_frame(preds_path: Path, frame_index=None, time_target=None, 
 
             p = persons[pi]
             kpx = _extract_keypoints_2d(p)
-            if kpx is None:
+            kmm = _extract_keypoints_xyz_mm(p)
+            if kpx is None and kmm is None:
                 continue
 
             if _extract_mean_score(p) < float(min_mean_score):
@@ -212,8 +227,11 @@ def read_jsonl_find_frame(preds_path: Path, frame_index=None, time_target=None, 
             entry = {
                 "time_sec": float(rec.get("time_sec", 0.0)),
                 "frame_index": int(rec.get("frame_index", -1)),
-                "keypoints_px": np.asarray(kpx, dtype=float),
             }
+            if kpx is not None:
+                entry["keypoints_px"] = np.asarray(kpx, dtype=float)
+            if kmm is not None:
+                entry["keypoints_xyz_mm"] = np.asarray(kmm, dtype=float)
 
             # keypoint names if present at record or person level
             kp_names = rec.get("keypoint_names") or p.get("keypoint_names")
@@ -239,6 +257,20 @@ def read_jsonl_find_frame(preds_path: Path, frame_index=None, time_target=None, 
 # ---------------------------
 # Drawing
 # ---------------------------
+
+def _fit_affine_3d_to_2d(X_mm, Y_px):
+    """Return M (4x2) s.t. Y ≈ [X|1] @ M, and a mask of used rows."""
+    X = np.asarray(X_mm, dtype=float)
+    Y = np.asarray(Y_px, dtype=float)
+    if X.ndim != 2 or X.shape[1] != 3 or Y.ndim != 2 or Y.shape[1] != 2:
+        return None, None
+    mask = np.all(np.isfinite(X), axis=1) & np.all(np.isfinite(Y), axis=1)
+    Xf, Yf = X[mask], Y[mask]
+    if Xf.shape[0] < 4:
+        return None, mask
+    X_aug = np.hstack([Xf, np.ones((Xf.shape[0], 1))])
+    M, *_ = np.linalg.lstsq(X_aug, Yf, rcond=None)
+    return M, mask
 
 def draw_skeleton(img, pts_px, names, edges, color=(0, 255, 0), thickness=1, radius=0):
     name2i = {n: i for i, n in enumerate(names)}
@@ -297,6 +329,10 @@ def main():
         choices=["ocap20", "all"],
         default="ocap20",
         help="Which keypoints to draw: OCAP20 subset (with edges) or all available (markers only).",
+    )
+    ap.add_argument(
+        "--space", choices=["auto", "px", "mm"], default="auto",
+        help="Coordinate space to visualize. 'mm' uses keypoints_xyz_mm (preds_metric) projected to the image via an affine fit; 'px' uses keypoints_px; 'auto': mm for preds_metric if available, else px."
     )
 
     # Frame/time selection
@@ -362,47 +398,92 @@ def main():
     if not meta_path.exists():
         log_warn("meta.json not found (continuing; only affects names/edges).")
 
-    # 2) Open video, pick frame
+    # 2) Open video
     log_step("Opening video")
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise SystemExit(f"[ERROR] cannot open video: {video_path}")
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
+    # 2a) Decide the target frame index (but do NOT seek randomly)
     if args.frame_index is not None:
-        fi = int(args.frame_index)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, fi)
+        fi_target = int(args.frame_index)
     elif args.time_sec is not None:
-        fi = int(round(args.time_sec * fps))
-        cap.set(cv2.CAP_PROP_POS_FRAMES, fi)
+        fi_target = int(round(args.time_sec * fps))
     else:
         nframes = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-        fi = max(0, nframes // 2)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, fi)
+        fi_target = max(0, nframes // 2)
 
-    ok, frame_bgr = cap.read()
-    if not ok:
-        raise SystemExit("[ERROR] failed to read selected frame")
+    # 2b) SEQUENTIAL decode up to fi_target (exact, like the estimator)
+    ok, frame_bgr = True, None
+    fi_actual = -1
+    for fi_actual in range(fi_target + 1):
+        ok, frame_bgr = cap.read()
+        if not ok:
+            raise SystemExit(f"[ERROR] failed to read frame {fi_actual}")
+
+    # Use OpenCV's timestamp if available (purely informational)
     pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
-    t_frame = (pos_msec / 1000.0) if (pos_msec and not np.isnan(pos_msec) and pos_msec > 0) else (fi / fps)
-    log_info(f"Using frame_index   : {fi}  (t={t_frame:.3f} s)")
+    t_frame = (pos_msec / 1000.0) if (pos_msec and not np.isnan(pos_msec) and pos_msec > 0) else (fi_actual / fps)
+    log_info(f"Decoded sequentially: frame_index={fi_actual} (t≈{t_frame:.3f}s)")
 
-    # 3) RTMW3D: find 2D for that frame or nearest in time
-    log_step("Fetching RTMW3D 2D keypoints for the chosen frame")
+    # 3) RTMW3D: fetch predictions for THIS exact frame index (index only; ignore time)
+    log_step("Fetching RTMW3D keypoints for the chosen frame")
     found = read_jsonl_find_frame(
         preds_path,
-        frame_index=fi,
-        time_target=t_frame,
+        frame_index=fi_actual,           # <-- single source of truth for matching
+        time_target=None,                # <-- do not provide time; avoids ambiguity
         tol_sec=1.0 / max(fps, 1.0),
         person_index=args.person_index,
         min_mean_score=args.min_mean_score,
     )
 
+    # Optional sanity log
+    log_info(("decoded:", fi_actual, f"{t_frame:.3f}s",
+            "| preds:", found["frame_index"], f'{found["time_sec"]:.3f}s'))
+
+
     if found is None:
         raise SystemExit("[ERROR] Could not find matching RTMW3D line for this frame.")
 
-    kp_px = found["keypoints_px"]
-    log_info(f"RTMW3D line time    : {found['time_sec']:.3f} s | K={kp_px.shape[0]} 2D joints")
+    space = args.space
+    if space == "auto":
+        space = "mm" if (args.preds_type == "preds_metric" and "keypoints_xyz_mm" in found) else "px"
+
+    if space == "mm":
+        if "keypoints_xyz_mm" not in found:
+            log_warn("No keypoints_xyz_mm found; falling back to px.")
+            space = "px"
+
+    if space == "mm":
+        Xmm = found.get("keypoints_xyz_mm")
+        Ypx = found.get("keypoints_px")
+        kp_px = None
+        if Xmm is not None and Ypx is not None:
+            M, mask = _fit_affine_3d_to_2d(Xmm, Ypx)
+            if M is not None:
+                X_aug = np.hstack([Xmm, np.ones((Xmm.shape[0], 1))])
+                kp_px = X_aug @ M
+                log_info("Projected mm→px via affine fit using overlapping joints.")
+        if kp_px is None and Xmm is not None:
+            log_warn("Affine fit unavailable; using normalized orthographic placement for mm coords.")
+            X = np.asarray(Xmm, dtype=float)
+            Xc = X - np.nanmean(X, axis=0)
+            import numpy as _np
+            valid = _np.all(_np.isfinite(Xc), axis=1)
+            pts = Xc[valid][:, :2]
+            if pts.shape[0] >= 2:
+                dists = _np.linalg.norm(pts[None, :, :] - pts[:, None, :], axis=-1)
+                med = _np.median(dists[_np.triu_indices_from(dists, 1)])
+                scale = 200.0 / (med + 1e-6)
+            else:
+                scale = 1.0
+            kp_px = Xc[:, :2] * scale
+    else:
+        kp_px = found["keypoints_px"]
+
+    _mode = "mm→px" if space == "mm" else "2D"
+    log_info(f"RTMW3D line time    : {found['time_sec']:.3f} s | K={kp_px.shape[0]} {_mode} joints")
 
     # 4) Optional names
     kp_names = None
@@ -439,6 +520,17 @@ def main():
     log_step("Drawing overlay")
     img = frame_bgr.copy()
 
+    # Center normalized mm projection (fallback) if needed
+    if isinstance(kp_px, np.ndarray) and kp_px.ndim == 2 and kp_px.shape[1] == 2:
+        h, w = img.shape[:2]
+        span = float(max(np.ptp(kp_px[:,0]) + 1e-6, np.ptp(kp_px[:,1]) + 1e-6))
+        if span > 0 and (span < 50):
+            s = 0.4 * min(w, h) / span
+            kp_px = kp_px * s
+        cx, cy = int(w * 0.5), int(h * 0.5)
+        mx, my = int(np.nanmean(kp_px[:,0])), int(np.nanmean(kp_px[:,1]))
+        kp_px = kp_px + np.array([cx - mx, cy - my])
+
     # Points as tilted crosses
     h, w = img.shape[:2]
     for p in kp_sel:
@@ -453,10 +545,10 @@ def main():
         draw_skeleton(img, kp_sel, names_sel, OCAP20_EDGES, color=(0, 255, 0), thickness=1, radius=0)
 
     # Labels
-    label_mode = "OCAP20" if args.kp_set == "ocap20" and names_sel is not None else ("all" if args.kp_set == "all" else "points")
+    label_mode = ("mm/affine" if space == "mm" else "px") + " " + ("OCAP20" if args.kp_set == "ocap20" and names_sel is not None else ("all" if args.kp_set == "all" else "points"))
     cv2.putText(
         img,
-        f"frame {fi}  t={t_frame:.3f}s  ({label_mode})",
+        f"frame {args.frame_index}  t={t_frame:.3f}s  ({label_mode})",
         (12, 28),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.8,
@@ -466,7 +558,7 @@ def main():
     )
     cv2.putText(
         img,
-        f"frame {fi}  t={t_frame:.3f}s  ({label_mode})",
+        f"frame {args.frame_index}  t={t_frame:.3f}s  ({label_mode})",
         (12, 28),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.8,
@@ -492,7 +584,7 @@ def main():
         cv2.putText(img, label, (x0 + 18, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
 
     # 7) Save
-    default_out = vis_dir / f"frame_{fi}_{'preds' if args.preds_type == 'preds' else 'preds_metric'}.png"
+    default_out = vis_dir / f"frame_{args.frame_index}_{'preds' if args.preds_type == 'preds' else 'preds_metric'}_{space}.png"
     out_path = Path(args.out) if args.out else default_out
     cv2.imwrite(str(out_path), img)
     log_done(f"Saved visualization : {out_path}")

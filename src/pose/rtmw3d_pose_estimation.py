@@ -5,20 +5,20 @@ then write preds.jsonl(.gz) + meta.json with fully populated keypoint names/skel
 
 Key fixes & features
 --------------------
-- ✅ **Correct color space**: keep frames in **BGR** for MMPose.
-- ✅ **Tight person crops**:
+-  **Correct color space**: keep frames in **BGR** for MMPose.
+-  **Tight person crops**:
   - Optional **MMDetection** person detector (run every N frames), or
   - **Detector-free** temporal tracking using the keypoint bbox from the previous frame.
-- ✅ **bbox_format='xyxy'** set explicitly for clarity.
-- ✅ `model.eval()` and `torch.inference_mode()` for correctness & speed.
-- ✅ Optional AMP (`--amp`) on CUDA.
-- ✅ Accurate timestamps with fallback to frame_idx / fps.
-- ✅ Optional two-pass refine (`--refine-pass`) to re-run on kp-tightened bbox.
+-  **bbox_format='xyxy'** set explicitly for clarity.
+-  `model.eval()` and `torch.inference_mode()` for correctness & speed.
+-  Optional AMP (`--amp`) on CUDA.
+-  Accurate timestamps with fallback to frame_idx / fps.
+-  Optional two-pass refine (`--refine-pass`) to re-run on kp-tightened bbox.
 
 Usage examples
 --------------
 # 1) No detector, temporal kp-bbox tracking (fast, works well for single subject)
-python rtmw3d_pose_estimation_fixed.py \
+python src/pose/rtmw3d_pose_estimation.py \
   -m manifests/OpenCapDataset/subject2-2.yaml -p config/paths.yaml \
   --trials walking1 --video-field video_sync --stride 1\
   --metainfo-from-file external/datasets_config/h3wb.py
@@ -233,7 +233,7 @@ def open_video(path: str):
         raise RuntimeError(f"Failed to open video: {path}")
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or np.isnan(fps):
-        fps = 30.0
+        fps = 60.0
     return cap, float(fps)
 
 
