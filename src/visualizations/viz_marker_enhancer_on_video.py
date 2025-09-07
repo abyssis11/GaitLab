@@ -514,10 +514,10 @@ def main():
     legend_items = []
     if body_px is not None:
         draw_points(img, body_px, color=(0, 255, 0), label_prefix=("B" if args.label_markers else None), names=body_names)
-        legend_items.append(("Marker‑Enhancer (Body)", (0, 255, 0)))
+        legend_items.append(("MarkerEnhancer (Body)", (0, 255, 0)))
     if arms_px is not None:
         draw_points(img, arms_px, color=(255, 255, 0), label_prefix=("A" if args.label_markers else None), names=arms_names)
-        legend_items.append(("Marker‑Enhancer (Arms)", (255, 255, 0)))
+        legend_items.append(("MarkerEnhancer (Arms)", (255, 255, 0)))
 
     mode = "similarity" if have_similarity else "simple"
     put_header(img, f"frame {fi}  t={t_frame:.3f}s  (proj: {mode})")
@@ -525,7 +525,7 @@ def main():
         draw_legend(img, legend_items)
 
     # 9) Save
-    default_out = vis_dir / f"frame_{fi}.png"
+    default_out = vis_dir / f"frame_{fi}_{args.set}.png"
     out_path = Path(args.out) if args.out else default_out
     cv2.imwrite(str(out_path), img)
     log_done(f"Saved visualization : {out_path}")

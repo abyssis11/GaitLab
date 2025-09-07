@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# run_marker_enhancer.py
+# marker_enhancer.py
 """
 Prepare OCAP20 3D keypoints for the Marker-Enhancer and (optionally) run it.
 
@@ -35,14 +35,14 @@ Notes
 
 Example (prep-only)
 -------------------
-python run_marker_enhancer.py \
+python src/marker_enhancer/marker_enhancer.py \
   -m manifests/OpenCapDataset/subject2.yaml \
   -p config/paths.yaml \
   --trial walking1
 
 Example (run Keras models)
 --------------------------
-python run_marker_enhancer.py \
+python src/marker_enhancer/marker_enhancer.py \
   -m manifests/OpenCapDataset/subject2.yaml \
   -p config/paths.yaml \
   --trial walking1 \

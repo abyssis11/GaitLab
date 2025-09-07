@@ -19,7 +19,7 @@ Usage examples
 --------------
 # 1) No detector, temporal kp-bbox tracking (fast, works well for single subject)
 python src/pose/rtmw3d_pose_estimation.py \
-  -m manifests/OpenCapDataset/subject2-2.yaml -p config/paths.yaml \
+  -m manifests/OpenCapDataset/subject2.yaml -p config/paths.yaml \
   --trials walking1 --video-field video_sync --stride 1\
   --metainfo-from-file external/datasets_config/h3wb.py --refine-pass
 
