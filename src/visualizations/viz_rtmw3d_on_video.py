@@ -522,9 +522,11 @@ def main():
 
     # Center normalized mm projection (fallback) if needed
     if isinstance(kp_px, np.ndarray) and kp_px.ndim == 2 and kp_px.shape[1] == 2:
+        log_info("Center normalized mm projection")
         h, w = img.shape[:2]
         span = float(max(np.ptp(kp_px[:,0]) + 1e-6, np.ptp(kp_px[:,1]) + 1e-6))
         if span > 0 and (span < 50):
+            log_info("Center normalized mm projection 2")
             s = 0.4 * min(w, h) / span
             kp_px = kp_px * s
         cx, cy = int(w * 0.5), int(h * 0.5)

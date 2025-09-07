@@ -1,3 +1,6 @@
+'''
+python src/marker_enhancer/marker_enhancer2.py   -m manifests/OpenCapDataset/subject2.yaml   -p config/paths.yaml   --trial walking1   --body-model ./models/marker_enhancer/body   --arms-model ./models/marker_enhancer/arm
+'''
 import argparse
 import json
 from pathlib import Path
@@ -80,6 +83,8 @@ def main():
     ap.add_argument("--trial", required=True)
     ap.add_argument("--body-model", default=None, help="Directory containing model.json, weights.h5, mean.npy, std.npy, metadata.json")
     ap.add_argument("--arms-model", default=None, help="Directory containing model.json, weights.h5, mean.npy, std.npy, metadata.json")
+    ap.add_argument("--upsampled", action="store_true", help="Use upsampled trc as input")
+
     args = ap.parse_args()
 
     featureHeight = True
@@ -112,10 +117,10 @@ def main():
     rtmw3d_dir = trial_root / "rtmw3d"
     eval_dir = trial_root / "rtmw3d_eval"
     enh_dir  = trial_root / "enhancer"
-    enh_output = os.path.join(enh_dir, f"enhancer_{args.trial}.trc")
+    enh_output = os.path.join(enh_dir, f"enhancer_{args.trial}{'_upsampled' if args.upsampled else ''}.trc")
     ensure_dir(eval_dir); ensure_dir(enh_dir)
 
-    rtmw3d_trc = rtmw3d_dir / "rtmw3d.trc"
+    rtmw3d_trc = rtmw3d_dir / f"rtmw3d{'_upsampled' if args.upsampled else ''}.trc"
     meta_path  = trial_root / "meta.json"
 
     log_info(f"Trial root : {trial_root}")
@@ -260,8 +265,8 @@ def main():
     min_y_pos = np.min(responses_all_conc[:,1::3])
 
     # If offset
-    if offset:
-        trc_file.offset('y', -(min_y_pos-0.01))
+    #if offset:
+    #    trc_file.offset('y', -(min_y_pos-0.01))
         
     # Return augmented .trc file   
     log_info(f"Save augmented .trc file ") 

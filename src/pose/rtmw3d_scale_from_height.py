@@ -480,14 +480,18 @@ def main():
     n_in, n_out = write_metric_preds(preds_path, out_path, scale)
     print(f"[DONE] {out_path} | frames_in={n_in}, frames_out={n_out}")
 
+    upsampling = False
     if args.trc:
-        trc_out = Path(args.trc_out) if args.trc_out else (rtmw3d_dir / "rtmw3d.trc")
         src_rate = float(meta.get("fps") or meta.get("frame_rate") or 60.0)
         target_rate = float(args.trc_rate) if args.trc_rate is not None else src_rate
 
         if target_rate > src_rate:
+            upsampling = True
             print(f"[INFO] Upsampling TRC: {src_rate:.3f} Hz → {target_rate:.3f} Hz "
                   f"({'LPF off' if args.trc_no_filter else f'LPF {args.trc_lpf_hz:.2f} Hz'})")
+            
+        trc_out = Path(args.trc_out) if args.trc_out else (rtmw3d_dir / f"rtmw3d{'_upsampled' if upsampling else ''}.trc")
+
 
         write_trc_from_metric(
             preds_metric_path=out_path,
