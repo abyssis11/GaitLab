@@ -17,7 +17,7 @@ What it does
 
 Usage
 -----
-python viz_rtmw3d_on_video.py \
+python src/visualizations/viz_rtmw3d_on_video.py \
   -m manifests/OpenCapDataset/subject2.yaml \
   -p config/paths.yaml \
   --trial walking1 \
@@ -584,7 +584,7 @@ def main():
         cv2.putText(img, label, (x0 + 18, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
 
     # 7) Save
-    default_out = vis_dir / f"frame_{args.frame_index}_{'preds' if args.preds_type == 'preds' else 'preds_metric'}_{space}.png"
+    default_out = vis_dir / f"frame_{args.frame_index}_{'preds' if args.preds_type == 'preds' else 'preds_metric'}_{space}_{args.kp_set}.png"
     out_path = Path(args.out) if args.out else default_out
     cv2.imwrite(str(out_path), img)
     log_done(f"Saved visualization : {out_path}")

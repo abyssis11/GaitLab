@@ -24,4 +24,3 @@ models/*.pth
 requirements2.in
 requirements3.in
 requirements4.txt
-src/visualizations/viz_mocap_on_video.py
