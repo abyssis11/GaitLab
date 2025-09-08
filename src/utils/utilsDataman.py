@@ -280,3 +280,39 @@ class TRCFile(object):
                 self.data[self.marker_names[imarker] + '_tz'] += value          
             else:
                 raise ValueError("Axis not recognized")
+
+    def scale(self, factor, set_units=None):
+        """Scale all marker coordinates by a constant factor.
+
+        Parameters
+        ----------
+        factor : float or (sx, sy, sz)
+            If a single float, scales X, Y, Z uniformly.
+            If a 3-tuple/list, scales X, Y, Z by (sx, sy, sz) respectively.
+        set_units : str, optional
+            If provided, updates the TRC header "Units" string (e.g., 'm' after
+            scaling mm->m with factor=0.001).
+
+        Notes
+        -----
+        - Operates in-place on self.data.
+        - Does not change time, frame count, or rates.
+        """
+        # Resolve factors
+        if np.isscalar(factor):
+            sx = sy = sz = float(factor)
+        else:
+            try:
+                sx, sy, sz = [float(v) for v in factor]
+            except Exception as e:
+                raise ValueError("factor must be a float or an iterable of length 3 (sx, sy, sz)") from e
+
+        # Apply per marker
+        for name in self.marker_names:
+            self.data[name + '_tx'] *= sx
+            self.data[name + '_ty'] *= sy
+            self.data[name + '_tz'] *= sz
+
+        # Optionally update units label in the header
+        if set_units is not None:
+            self.units = set_units

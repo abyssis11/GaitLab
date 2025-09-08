@@ -56,6 +56,12 @@ trials:
       mocap_trc:  ${paths.root}/MarkerData/Mocap/static1.trc
       forces_mot: ${paths.root}/ForceData/static1_forces.mot
 
+    - id: static2
+      video_sync: ${paths.root}/VideoData/Session0/Cam2/static1/static1_syncdWithMocap.avi
+      video_raw:  ${paths.root}/VideoData/Session0/Cam2/static1/static1.avi
+      mocap_trc:  ${paths.root}/MarkerData/Mocap/static1.trc
+      forces_mot: ${paths.root}/ForceData/static1_forces.mot
+
   pathological:
     - id: walkingTS1
       video_sync: ${paths.root}/VideoData/Session1/Cam0/walkingTS1/walkingTS1_syncdWithMocap.avi

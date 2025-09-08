@@ -1,12 +1,19 @@
 '''
-python src/marker_enhancer/marker_enhancer2.py   -m manifests/OpenCapDataset/subject2.yaml   -p config/paths.yaml   --trial walking1   --body-model ./models/marker_enhancer/body   --arms-model ./models/marker_enhancer/arm
+python src/marker_enhancer/marker_enhancer2.py \
+    -m manifests/OpenCapDataset/subject2.yaml \
+    -p config/paths.yaml \
+    --trial static1 \
+    --models-path \
+    ./models/marker_enhancer/ \
+    --version 0.3 \
+    --upsampled
 '''
 import argparse
 import json
 from pathlib import Path
 import numpy as np
 from IO.load_manifest import load_manifest
-import utilsDataman
+import utils.utilsDataman as utilsDataman
 import os
 import copy
 import tensorflow as tf
@@ -22,7 +29,7 @@ def log_done(msg): print(f"[DONE] {msg}")
 def ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
 
-def TRC2numpy(pathFile, markers,rotation=None):
+def TRC2numpy(pathFile, markers, rotation=None):
     # rotation is a dict, eg. {'y':90} with axis, angle for rotation
     
     trc_file = utilsDataman.TRCFile(pathFile)
@@ -42,6 +49,28 @@ def TRC2numpy(pathFile, markers,rotation=None):
     return data_out
 
 # ---------- Markers (OpenCap code) ----------
+def getOpenPoseMarkers_lowerExtremity():
+    feature_markers = [
+        "Neck", "RShoulder", "LShoulder", "RHip", "LHip", "RKnee", "LKnee",
+        "RAnkle", "LAnkle", "RHeel", "LHeel", "RSmallToe", "LSmallToe",
+        "RBigToe", "LBigToe"]
+
+    response_markers = ["C7_study", "r_shoulder_study", "L_shoulder_study",
+                        "r.ASIS_study", "L.ASIS_study", "r.PSIS_study", 
+                        "L.PSIS_study", "r_knee_study", "L_knee_study",
+                        "r_mknee_study", "L_mknee_study", "r_ankle_study", 
+                        "L_ankle_study", "r_mankle_study", "L_mankle_study",
+                        "r_calc_study", "L_calc_study", "r_toe_study", 
+                        "L_toe_study", "r_5meta_study", "L_5meta_study",
+                        "r_thigh1_study", "r_thigh2_study", "r_thigh3_study",
+                        "L_thigh1_study", "L_thigh2_study", "L_thigh3_study", 
+                        "r_sh1_study", "r_sh2_study", "r_sh3_study", 
+                        "L_sh1_study", "L_sh2_study", "L_sh3_study",
+                        "RHJC_study", "LHJC_study"]
+
+    return feature_markers, response_markers
+
+# Different order of markers compared to getOpenPoseMarkers_lowerExtremity 
 def getOpenPoseMarkers_lowerExtremity2():
 
     feature_markers = [
@@ -64,6 +93,19 @@ def getOpenPoseMarkers_lowerExtremity2():
 
     return feature_markers, response_markers
 
+def getMarkers_upperExtremity_noPelvis():
+
+    feature_markers = [
+        "Neck", "RShoulder", "LShoulder", "RElbow", "LElbow", "RWrist",
+        "LWrist"]
+
+    response_markers = ["r_lelbow_study", "L_lelbow_study", "r_melbow_study",
+                        "L_melbow_study", "r_lwrist_study", "L_lwrist_study",
+                        "r_mwrist_study", "L_mwrist_study"]
+
+    return feature_markers, response_markers
+
+# Different order of markers compared to getMarkers_upperExtremity_noPelvis.
 def getMarkers_upperExtremity_noPelvis2():
 
     feature_markers = [
@@ -84,6 +126,8 @@ def main():
     ap.add_argument("--body-model", default=None, help="Directory containing model.json, weights.h5, mean.npy, std.npy, metadata.json")
     ap.add_argument("--arms-model", default=None, help="Directory containing model.json, weights.h5, mean.npy, std.npy, metadata.json")
     ap.add_argument("--upsampled", action="store_true", help="Use upsampled trc as input")
+    ap.add_argument("--version", required=True, help="Use upsampled trc as input")
+    ap.add_argument("--models-path", default=None)
 
     args = ap.parse_args()
 
@@ -118,11 +162,13 @@ def main():
     eval_dir = trial_root / "rtmw3d_eval"
     enh_dir  = trial_root / "enhancer"
     enh_output = os.path.join(enh_dir, f"enhancer_{args.trial}{'_upsampled' if args.upsampled else ''}.trc")
-    ensure_dir(eval_dir); ensure_dir(enh_dir)
+    ensure_dir(eval_dir)
+    ensure_dir(enh_dir)
 
     rtmw3d_trc = rtmw3d_dir / f"rtmw3d{'_upsampled' if args.upsampled else ''}.trc"
     meta_path  = trial_root / "meta.json"
-
+    model_lower = f"v{args.version}_lower"
+    model_upper = f"v{args.version}_upper"
     log_info(f"Trial root : {trial_root}")
     log_info(f"Trc preds path : {rtmw3d_trc}")
     log_info(f"meta.json  : {meta_path}")
@@ -137,17 +183,29 @@ def main():
         raise SystemExit("[ERROR] subject.height_m missing/invalid in meta.json")
     if not (isinstance(mass_kg, (int, float)) and mass_kg > 0):
         raise SystemExit("[ERROR] subject.mass_kg missing/invalid in meta.json")
-    log_info(f"Subject info: height={height_m} m ({height_m*1000:.1f} mm), mass={mass_kg} kg")
+    log_info(f"Subject info: height={float(height_m)} m ({height_m*1000:.1f} mm), mass={mass_kg} kg")
 
+    height_m = float(height_m)
+    mass_kg = float(mass_kg)
     # Get markers
-    feature_markers_lower, response_markers_lower = getOpenPoseMarkers_lowerExtremity2()
-    feature_markers_upper, response_markers_upper = getMarkers_upperExtremity_noPelvis2() 
-    feature_markers_all = [feature_markers_lower, feature_markers_upper]
-    response_markers_all = [response_markers_lower, response_markers_upper]
-    augmenterModelType_all = ["body", "arms"]
+    if args.version == "0.1" or  args.version == "0.2":
+        feature_markers_lower, response_markers_lower = getOpenPoseMarkers_lowerExtremity()
+        feature_markers_upper, response_markers_upper = getMarkers_upperExtremity_noPelvis() 
+        feature_markers_all = [feature_markers_lower, feature_markers_upper]
+        response_markers_all = [response_markers_lower, response_markers_upper]
+    else:
+        feature_markers_lower, response_markers_lower = getOpenPoseMarkers_lowerExtremity2()
+        feature_markers_upper, response_markers_upper = getMarkers_upperExtremity_noPelvis2() 
+        feature_markers_all = [feature_markers_lower, feature_markers_upper]
+        response_markers_all = [response_markers_lower, response_markers_upper]
+
+    augmenterModelType_all = [model_lower, model_upper]
 
     # Load trc
     trc_file = utilsDataman.TRCFile(rtmw3d_trc)
+    #trc_file.scale(0.001, set_units="mm")
+    #units = str(trc_file.units).lower()           # should be 'mm'
+    #height_scale = height_m * (1000.0 if units.startswith('mm') else 1.0)
 
     # Loop over augmenter types to handle separate augmenters for lower and
     # upper bodies.
@@ -157,102 +215,134 @@ def main():
         outputs_all[idx_augm] = {}
         feature_markers = feature_markers_all[idx_augm]
         response_markers = response_markers_all[idx_augm]
-        
-        model_dir = (Path(args.body_model) if augmenterModelType == "body" else Path(args.arms_model))
+        model_dir = os.path.join(args.models_path, augmenterModelType)
 
-        # Step 1: import .trc file with OpenPose marker trajectories.
-        log_info(f"Step 1: import .trc") 
+        # ---- Step 1: import .trc file with OpenPose marker trajectories.
+        log_info(f"Step 1: import .trc")
         trc_data = TRC2numpy(rtmw3d_trc, feature_markers)
-        trc_data_data = trc_data[:,1:]
-        
-        # Step 2: Normalize with reference marker position.
-        log_info(f"Step 2: Normalize with reference marker position.") 
+        trc_data_data = trc_data[:, 1:]  # strip time
+
+        # ---- Load metadata (reference marker)
         with open(os.path.join(model_dir, "metadata.json"), 'r') as f:
             metadata = json.load(f)
         referenceMarker = metadata['reference_marker']
         referenceMarker_data = trc_file.marker(referenceMarker)
-        norm_trc_data_data = np.zeros((trc_data_data.shape[0],
-                                       trc_data_data.shape[1]))
-        for i in range(0,trc_data_data.shape[1],3):
-            norm_trc_data_data[:,i:i+3] = (trc_data_data[:,i:i+3] - 
-                                           referenceMarker_data)
-            
-        # Step 3: Normalize with subject's height.
-        log_info(f"Step 3: Normalize with subject's height.") 
-        norm2_trc_data_data = copy.deepcopy(norm_trc_data_data)
-        norm2_trc_data_data = norm2_trc_data_data / height_m
 
-        # Step 4: Add remaining features.
-        log_info(f"Step 4: Add remaining features.") 
-        inputs = copy.deepcopy(norm2_trc_data_data)
-        if featureHeight:    
-            inputs = np.concatenate(
-                (inputs, height_m*np.ones((inputs.shape[0],1))), axis=1)
-        if featureWeight:    
-            inputs = np.concatenate(
-                (inputs, mass_kg*np.ones((inputs.shape[0],1))), axis=1)
+        # ========== FIX 1: height_scale in TRC units ==========
+        units = str(trc_file.units).lower()  # e.g., 'mm'
+        height_scale = height_m * (1000.0 if units.startswith('mm') else 1.0)
+        log_info(f"[UNIT] TRC units={trc_file.units} -> height_scale={height_scale:.3f} "
+                f"({'mm' if units.startswith('mm') else 'm'})")
 
-        # Step 5: Pre-process data
-        log_info(f"Step 5: Pre-process data") 
+        # ---- Step 2: Normalize with reference marker position (root-center)
+        log_info(f"Step 2: Normalize with reference marker position.")
+        norm_trc_data_data = np.empty_like(trc_data_data)
+        for i in range(0, trc_data_data.shape[1], 3):
+            norm_trc_data_data[:, i:i+3] = trc_data_data[:, i:i+3] - referenceMarker_data
+
+        # ---- Step 3: Normalize by subject's height_scale (dimensionless inputs)
+        log_info(f"Step 3: Normalize with subject's height.")
+        norm2_trc_data_data = norm_trc_data_data / height_scale
+        log_info(f"[CHK] After Step 3 (ref+height_scale) mean±std: "
+                f"{np.mean(norm2_trc_data_data):.6f}, {np.std(norm2_trc_data_data):.6f}")
+
+        # ---- Load mean/std early so we can match feature length
         pathMean = os.path.join(model_dir, "mean.npy")
-        pathSTD = os.path.join(model_dir, "std.npy")
-        if os.path.isfile(pathMean):
-            trainFeatures_mean = np.load(pathMean, allow_pickle=True)
-            inputs -= trainFeatures_mean
-        if os.path.isfile(pathSTD):
-            trainFeatures_std = np.load(pathSTD, allow_pickle=True)
-            inputs /= trainFeatures_std 
+        pathSTD  = os.path.join(model_dir, "std.npy")
+        trainFeatures_mean = np.load(pathMean, allow_pickle=True) if os.path.isfile(pathMean) else None
+        trainFeatures_std  = np.load(pathSTD,  allow_pickle=True) if os.path.isfile(pathSTD)  else None
 
-        # Step 6: Reshape inputs if necessary (eg, LSTM)
-        log_info(f"Step 6: Reshape inputs") 
+        # ========== FIX 2: build feature vector to match mean/std length exactly ==========
+        log_info(f"Step 4: Add remaining features.")
+        inputs = norm2_trc_data_data
+        baseF = inputs.shape[1]
+        needF = (trainFeatures_mean.shape[0] if trainFeatures_mean is not None else
+                (trainFeatures_std.shape[0] if trainFeatures_std is not None else None))
+
+        if needF is not None:
+            if needF == baseF:
+                pass  # no scalars expected
+            elif needF == baseF + 1:
+                # Append height as METERS (this is how models are typically trained)
+                inputs = np.concatenate([inputs, np.full((inputs.shape[0], 1), height_m)], axis=1)
+                log_info("[FEAT] Appended height (meters) to match training features.")
+            elif needF == baseF + 2:
+                inputs = np.concatenate([inputs, np.full((inputs.shape[0], 1), height_m)], axis=1)
+                inputs = np.concatenate([inputs, np.full((inputs.shape[0], 1), mass_kg)], axis=1)
+                log_info("[FEAT] Appended height (m) and mass (kg) to match training features.")
+            else:
+                raise SystemExit(f"[ERROR] Feature length mismatch: base={baseF}, expected={needF}. "
+                                f"Check feature list/order for {augmenterModelType}.")
+        else:
+            # Fallback: respect flags, but keep height in meters & mass in kg
+            if featureHeight:
+                inputs = np.concatenate([inputs, np.full((inputs.shape[0], 1), height_m)], axis=1)
+            if featureWeight:
+                inputs = np.concatenate([inputs, np.full((inputs.shape[0], 1), mass_kg)], axis=1)
+
+        log_info(f"[CHK] After Step 4 (full feature vec) mean±std: {np.mean(inputs):.6f}, {np.std(inputs):.6f}")
+
+        # ---- Step 5: Standardize (must match last-dim size)
+        log_info(f"Step 5: Pre-process data")
+        if trainFeatures_mean is not None:
+            log_info(f"Step 5a: applying {pathMean}")
+            if inputs.shape[1] != trainFeatures_mean.shape[0]:
+                raise SystemExit(f"[ERROR] inputs dim {inputs.shape[1]} != mean dim {trainFeatures_mean.shape[0]}")
+            inputs = inputs - trainFeatures_mean.reshape(1, -1)
+        if trainFeatures_std is not None:
+            log_info(f"Step 5b: applying {pathSTD}")
+            if inputs.shape[1] != trainFeatures_std.shape[0]:
+                raise SystemExit(f"[ERROR] inputs dim {inputs.shape[1]} != std dim {trainFeatures_std.shape[0]}")
+            inputs = inputs / trainFeatures_std.reshape(1, -1)
+        log_info(f"[CHK] After Step 5b (standardized) mean±std: {float(np.mean(inputs)):.6f} {float(np.std(inputs)):.6f}")
+
+        # ---- Step 6: Reshape, predict
+        log_info(f"Step 6: Reshape inputs")
         inputs = np.reshape(inputs, (1, inputs.shape[0], inputs.shape[1]))
-            
-        # Load model and weights, and predict outputs.
-        log_info(f"Load model and weights, and predict outputs.") 
-        json_file = open(os.path.join(model_dir, "model.json"), 'r')
-        pretrainedModel_json = json_file.read()
-        json_file.close()
-        model = tf.keras.models.model_from_json(pretrainedModel_json)
-        model.load_weights(os.path.join(model_dir, "weights.h5"))  
+
+        log_info(f"Load model and weights, and predict outputs.")
+        with open(os.path.join(model_dir, "model.json"), 'r') as jf:
+            model = tf.keras.models.model_from_json(jf.read())
+        model.load_weights(os.path.join(model_dir, "weights.h5"))
         outputs = model.predict(inputs, verbose=2)
 
-        # Post-process outputs.
-        # Step 1: Reshape if necessary (eg, LSTM)
+        # ---- Post-process outputs
         log_info(f"Post-process outputs.")
-        log_info(f"Step 1: Reshape") 
+        log_info(f"Step 1: Reshape")
         outputs = np.reshape(outputs, (outputs.shape[1], outputs.shape[2]))
 
-        # Step 2a: Un-normalize with subject's height
-        log_info(f"Step 2a: Un-normalize with subject's height") 
-        unnorm_outputs = outputs * height_m
-        
-        # Step 2b: Un-normalize with reference marker position.
-        log_info(f"Step 2b: Un-normalize with reference marker position.") 
-        unnorm2_outputs = np.zeros((unnorm_outputs.shape[0],
-                                    unnorm_outputs.shape[1]))
-        for i in range(0,unnorm_outputs.shape[1],3):
-            unnorm2_outputs[:,i:i+3] = (unnorm_outputs[:,i:i+3] + 
-                                        referenceMarker_data)
+        # Un-normalize using the SAME height_scale (TRC units), then add reference back
+        log_info(f"Step 2a: Un-normalize with subject's height")
+        unnorm_outputs = outputs * height_scale
 
-        # Add markers to .trc file.
-        log_info(f"Add markers to .trc file.") 
+        log_info(f"Step 2b: Un-normalize with reference marker position.")
+        unnorm2_outputs = np.empty_like(unnorm_outputs)
+        for i in range(0, unnorm_outputs.shape[1], 3):
+            unnorm2_outputs[:, i:i+3] = unnorm_outputs[:, i:i+3] + referenceMarker_data
+
+        frame0 = unnorm2_outputs[0].reshape(-1, 3)
+        log_info(f"Per-axis spread at frame 0 (mm): {frame0.ptp(axis=0)}")
+
+        # Add markers to .trc
+        log_info(f"Add markers to .trc file.")
         for c, marker in enumerate(response_markers):
-            x = unnorm2_outputs[:,c*3]
-            y = unnorm2_outputs[:,c*3+1]
-            z = unnorm2_outputs[:,c*3+2]
+            x = unnorm2_outputs[:, c*3 + 0]
+            y = unnorm2_outputs[:, c*3 + 1]
+            z = unnorm2_outputs[:, c*3 + 2]
             trc_file.add_marker(marker, x, y, z)
-            
-        # Gather data for computing minimum y-position.
-        log_info(f"Gather data for computing minimum y-position.") 
-        outputs_all[idx_augm]['response_markers'] = response_markers   
+
+        # Collect for min-y computation
+        log_info(f"Gather data for computing minimum y-position.")
+        outputs_all[idx_augm]['response_markers'] = response_markers
         outputs_all[idx_augm]['response_data'] = unnorm2_outputs
         n_response_markers_all += len(response_markers)
+
 
     # Extract minimum y-position across response markers. This is used
     # to align feet and floor when visualizing.
     log_info(f"Extract minimum y-position across response markers. This is used to align feet and floor when visualizing.") 
-    responses_all_conc = np.zeros((unnorm2_outputs.shape[0],
-                                   n_response_markers_all*3))
+    responses_all_conc = np.zeros((unnorm2_outputs.shape[0], n_response_markers_all*3))
+
     idx_acc_res = 0
     for idx_augm in outputs_all:
         idx_acc_res_end = (idx_acc_res + 
@@ -263,12 +353,14 @@ def main():
     # Minimum y-position across response markers.
     log_info(f"Minimum y-position across response markers.") 
     min_y_pos = np.min(responses_all_conc[:,1::3])
-
+    
     # If offset
-    #if offset:
-    #    trc_file.offset('y', -(min_y_pos-0.01))
+    if offset:
+        log_info(f"Offset: {-(min_y_pos-10.0)}")
+        trc_file.offset('y', -(min_y_pos-0.01))
         
     # Return augmented .trc file   
+    #trc_file.scale(1000, set_units="mm")
     log_info(f"Save augmented .trc file ") 
     trc_file.write(enh_output)
     
