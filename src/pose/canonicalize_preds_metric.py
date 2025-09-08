@@ -35,12 +35,8 @@ def _infer_indices_coarse(K: int):
     Best-effort indices for COCO-WholeBody-133 layout.
     Returns dict with indices: left_shoulder, right_shoulder, left_hip, right_hip.
     """
-    if K == 133:
-        # COCO body 17 indices at 0..16
-        # 5=left_shoulder, 6=right_shoulder, 11=left_hip, 12=right_hip
-        return {"left_shoulder": 5, "right_shoulder": 6, "left_hip": 11, "right_hip": 12}
-    elif K >= 17:
-        # Assume COCO-17-like ordering
+    if K >= 17:
+        # H3WB ordering
         return {"left_shoulder": 5, "right_shoulder": 6, "left_hip": 11, "right_hip": 12}
     else:
         return {}
@@ -162,7 +158,7 @@ def export_trc(frames, out_path, kp_names: list | None , source_key="keypoints_x
                             f"{z:.5f}" if np.isfinite(z) else ""])
             fout.write("\t".join(row) + "\n")
 
-def canonicalize(in_path, out_path, mode="first-frame"):
+def canonicalize(in_path, out_path, mode="first-frame", use_abs = False):
     frames = load_frames(in_path)
     # detect K
     first_p = None
@@ -172,14 +168,14 @@ def canonicalize(in_path, out_path, mode="first-frame"):
             first_p = persons[0]
             break
     if not first_p:
-        raise SystemExit("No persons in input.")
-    kps0 = np.asarray(first_p.get("keypoints_xyz_mm"), dtype=float)
+        log_err("No persons in input.")
+    kps0 = np.asarray(first_p.get(f"keypoints_{'cam_mm_abs' if use_abs else 'xyz_mm'}"), dtype=float)
     if kps0.ndim != 2 or kps0.shape[1] != 3:
-        raise SystemExit("keypoints_xyz_mm missing or invalid shape.")
+       log_err("keypoints missing or invalid shape.")
     K = kps0.shape[0]
     idxs = _infer_indices_coarse(K)
     if not idxs:
-        raise SystemExit(f"Unsupported K={K}; cannot infer hips/shoulders without keypoint_names.")
+        log_err(f"Unsupported K={K}; cannot infer hips/shoulders without keypoint_names.")
 
     centers = []
     Rs = []
@@ -187,7 +183,7 @@ def canonicalize(in_path, out_path, mode="first-frame"):
         persons = o.get("persons") or []
         if not persons:
             centers.append(None); Rs.append(None); continue
-        A = np.asarray(persons[0].get("keypoints_xyz_mm"), dtype=float)
+        A = np.asarray(persons[0].get(f"keypoints_{'cam_mm_abs' if use_abs else 'xyz_mm'}"), dtype=float)
         if A.ndim != 2 or A.shape[1] != 3 or A.shape[0] < K:
             centers.append(None); Rs.append(None); continue
 
@@ -204,7 +200,7 @@ def canonicalize(in_path, out_path, mode="first-frame"):
     if mode == "first-frame":
         R0 = next((R for R in Rs if R is not None), None)
         if R0 is None:
-            raise SystemExit("Could not compute a single canonical rotation from any frame.")
+            log_err("Could not compute a single canonical rotation from any frame.")
         Rs = [R0 if R is not None else None for R in Rs]
 
     out_frames = []
@@ -212,7 +208,7 @@ def canonicalize(in_path, out_path, mode="first-frame"):
         persons = o.get("persons") or []
         new_persons = []
         for p in persons:
-            A = np.asarray(p.get("keypoints_xyz_mm"), dtype=float)
+            A = np.asarray(p.get(f"keypoints_{'cam_mm_abs' if use_abs else 'xyz_mm'}"), dtype=float)
             if A.ndim != 2 or A.shape[1] != 3:
                 continue
             p2 = dict(p)
@@ -247,6 +243,7 @@ def main():
                     help="Use single rotation from first valid frame, or per-frame rotations.")
     ap.add_argument("--export-trc", action="store_true", help="Optional TRC export option")
     ap.add_argument("--rate", dest="rate", type=float, default=60.0, help="TRC sample rate assumption.")
+    ap.add_argument("--use-abs", action="store_true", default=False)
     args = ap.parse_args()
 
     log_step("Loading and resolving manifest")
@@ -273,7 +270,7 @@ def main():
         base = Path(manifest.get('outputs_root', Path.cwd() / "outputs")) / subj / sess / cam
     trial_root = Path(base) / trial['id']
     rtmw3d_dir = trial_root / "rtmw3d"
-    preds_metric = rtmw3d_dir / "preds_metric.jsonl"
+    preds_metric = rtmw3d_dir / f"preds_metric{'_abs' if args.use_abs else ''}.jsonl"
     meta_path  = trial_root / "meta.json"
 
     log_info(f"Trial root : {trial_root}")
@@ -286,12 +283,14 @@ def main():
     kp_names = meta.get("keypoint_names") or []
 
     log_step(f"Running canonicalization")
-    frames = canonicalize(preds_metric, output_path, mode=args.mode)
+    log_step(f"Using abs: {args.use_abs}")
+    frames = canonicalize(preds_metric, output_path, mode=args.mode, use_abs=args.use_abs)
 
     if args.export_trc:
         log_step(f"Exporting in TRC")
         trc_outpath  = rtmw3d_dir / "rtmw3d_cannonical.trc"
         export_trc(frames, trc_outpath, kp_names=kp_names, source_key="keypoints_xyz_mm_canonical", rate_hz=args.rate)
+        log_step(f"TRC exported to {trc_outpath}")
 
 if __name__ == "__main__":
     main()

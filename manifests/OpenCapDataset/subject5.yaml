@@ -1,11 +1,11 @@
 # Minimal subject manifest (OpenCap, Session1, Cam0 only)
-subject_id: subject2
+subject_id: subject5
 session: Session1
 camera: Cam0
 session_metadata: ${paths.root}/sessionMetadata.yaml
 
 # Let the loader auto-detect real FPS from the file header; override if you want 59.94 exactly.
-fps_video: auto
+fps_video: 60.0
 fps_mocap: 100.0   # TRC sampling rate
 units:
   video_space: pixels
@@ -13,7 +13,7 @@ units:
 
 paths:
   # per-subject root (absolute or relative to repo root—your choice)
-  root: ${datasets.opencap_root}/subject2
+  root: ${datasets.opencap_root}/subject5
 
 calibration:
   intrinsics_extrinsics: ${paths.root}/VideoData/Session1/Cam0/cameraIntrinsicsExtrinsics.pickle

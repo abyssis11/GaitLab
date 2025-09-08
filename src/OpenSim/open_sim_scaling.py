@@ -45,7 +45,6 @@ def getScaleTimeRange(pathTRCFile, thresholdPosition=0.005, thresholdTime=0.3,
     c_trc_file = utilsDataman.TRCFile(pathTRCFile)
     c_trc_time = c_trc_file.time    
     if withOpenPoseMarkers:
-        # No big toe markers, such as to include both OpenPose and mmpose.
         markers = ["neck", "right_shoulder", "left_shoulder", "right_hip", "left_hip", "right_knee", 
                    "left_knee", "right_ankle", "left_ankle", "right_heel", "left_heel", "right_small_toe", 
                    "left_small_toe", "right_elbow", "left_elbow", "right_wrist", "left_wrist"]        
@@ -345,12 +344,12 @@ def main():
     height_m = subj.get("height_m", None)
     mass_kg  = subj.get("mass_kg", None)
     if not (isinstance(height_m, (int, float)) and height_m > 0):
-        raise SystemExit("[ERROR] subject.height_m missing/invalid in meta.json")
+        raise log_err("subject.height_m missing/invalid in meta.json")
     if not (isinstance(mass_kg, (int, float)) and mass_kg > 0):
-        raise SystemExit("[ERROR] subject.mass_kg missing/invalid in meta.json")
+        raise log_err("subject.mass_kg missing/invalid in meta.json")
     log_info(f"Subject info: height={height_m} m ({height_m*1000:.1f} mm), mass={mass_kg} kg")
 
-    height_m = height_m
+    height_m = height_m * 1000.0
     mass_kg = float(mass_kg)
 
     # Get time range.
