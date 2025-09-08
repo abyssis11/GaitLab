@@ -16,19 +16,19 @@ Includes:
 Usage examples:
 
 Pelvis-centered (translation-invariant, default):
-python src/validation/validate_rtmw3d_vs_mocap.py \\
-  -m manifests/OpenCapDataset/subject2.yaml \\
-  -p config/paths.yaml \\
-  --trial walking1 \\
-  --joint-set ocap20 \\
+python src/validation/validate_rtmw3d_vs_mocap.py \
+  -m manifests/OpenCapDataset/subject2.yaml \
+  -p config/paths.yaml \
+  --trial walking1 \
+  --joint-set ocap20 \
   --save-series
 
 Absolute/global evaluation (uses R and, if available, t from extrinsics; no pelvis-centering):
-python src/validation/validate_rtmw3d_vs_mocap.py \\
-  -m manifests/OpenCapDataset/subject2.yaml \\
-  -p config/paths.yaml \\
-  --trial walking1 \\
-  --joint-set basic \\
+python src/validation/validate_rtmw3d_vs_mocap.py \
+  -m manifests/OpenCapDataset/subject2.yaml \
+  -p config/paths.yaml \
+  --trial walking1 \
+  --joint-set basic \
   --center none
 """
 

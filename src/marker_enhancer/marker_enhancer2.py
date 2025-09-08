@@ -165,7 +165,7 @@ def main():
     ensure_dir(eval_dir)
     ensure_dir(enh_dir)
 
-    rtmw3d_trc = rtmw3d_dir / f"rtmw3d{'_upsampled' if args.upsampled else ''}.trc"
+    rtmw3d_trc = rtmw3d_dir / f"rtmw3d{'_cannonical' if args.upsampled else ''}.trc"
     meta_path  = trial_root / "meta.json"
     model_lower = f"v{args.version}_lower"
     model_upper = f"v{args.version}_upper"

@@ -653,7 +653,7 @@ def main():
     vis_dir.mkdir(parents=True, exist_ok=True)
 
     video_path = Path(trial.get(args.video_field))
-    trc_path = Path(args.trc_path) if args.trc_path else (enh_dir / f"enhancer_{args.trial}.trc")
+    trc_path = Path(args.trc_path) if args.trc_path else (enh_dir / f"enhancer_{args.trial}_upsampled.trc")
     meta_path = trial_root / "meta.json"
     preds_path = rtmw3d_dir / "preds_metric.jsonl"
     enh_input_path = enh_dir / "enh_input_60hz.npz"
@@ -703,7 +703,7 @@ def main():
     log_step("Loading TRC")
     found = read_trc_find_frame(
         trc_path,
-        frame_index=args.trc_frame_offset,           # <-- single source of truth for matching
+        frame_index=1,           # <-- single source of truth for matching
         time_target=None,                # <-- do not provide time; avoids ambiguity
         tol_sec=1.0 / max(fps, 1.0),
         suffix_filter=args.trc_suffix
