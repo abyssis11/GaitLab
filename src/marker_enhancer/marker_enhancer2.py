@@ -125,9 +125,9 @@ def main():
     ap.add_argument("--trial", required=True)
     ap.add_argument("--body-model", default=None, help="Directory containing model.json, weights.h5, mean.npy, std.npy, metadata.json")
     ap.add_argument("--arms-model", default=None, help="Directory containing model.json, weights.h5, mean.npy, std.npy, metadata.json")
-    ap.add_argument("--upsampled", action="store_true", help="Use upsampled trc as input")
     ap.add_argument("--version", required=True, help="Use upsampled trc as input")
     ap.add_argument("--models-path", default=None)
+    ap.add_argument("--trc-type", required=True, choices=["metric_upsampled", "cannonical", "abs_cannonical", "world", "cam", "metric"])
 
     args = ap.parse_args()
 
@@ -161,11 +161,11 @@ def main():
     rtmw3d_dir = trial_root / "rtmw3d"
     eval_dir = trial_root / "rtmw3d_eval"
     enh_dir  = trial_root / "enhancer"
-    enh_output = os.path.join(enh_dir, f"enhancer_{args.trial}{'_upsampled' if args.upsampled else ''}.trc")
+    enh_output = os.path.join(enh_dir, f"enhancer_{args.trial}_{args.trc_type}.trc")
     ensure_dir(eval_dir)
     ensure_dir(enh_dir)
 
-    rtmw3d_trc = rtmw3d_dir / f"rtmw3d{'_cannonical' if args.upsampled else ''}.trc"
+    rtmw3d_trc = rtmw3d_dir / f"rtmw3d_{args.trc_type}.trc"
     meta_path  = trial_root / "meta.json"
     model_lower = f"v{args.version}_lower"
     model_upper = f"v{args.version}_upper"

@@ -1,0 +1,13 @@
+python src/pose/rtmw3d_pose_estimation.py   -m manifests/OpenCapDataset/subject5.yaml -p config/paths.yaml   --trials static1 --video-field video_sync --stride 1  --metainfo-from-file external/datasets_config/h3wb.py --refine-pass
+
+python src/pose/rtmw3d_scale_from_height.py   -m manifests/OpenCapDataset/subject5.yaml   -p config/paths.yaml   --trial static1   --trc
+
+python src/pose/rtmw3d_make_absolute.py     -m ./manifests/OpenCapDataset/subject5.yaml     -p ./config/paths.yaml     --trial static1     --trc-cam     --trc-world     --ema 0.2 --min-score 0.2
+
+python src/pose/canonicalize_preds_metric.py     -m ./manifests/OpenCapDataset/subject5.yaml     -p ./config/paths.yaml     --trial static1     --export-trc     --mode per-frame
+OR
+python src/pose/canonicalize_preds_metric.py     -m ./manifests/OpenCapDataset/subject5.yaml     -p ./config/paths.yaml     --trial static1     --export-trc     --mode per-frame --use-abs
+
+python src/marker_enhancer/marker_enhancer2.py     -m manifests/OpenCapDataset/subject5.yaml     -p config/paths.yaml     --trial static1     --models-path     ./models/marker_enhancer/     --version 0.3     --trc-type cannonical
+
+python src/OpenSim/open_sim_scaling.py     -m manifests/OpenCapDataset/subject5.yaml     -p config/paths.yaml     --trial static1     --scaling-xml     ./models/OpenSim/Setup_scaling_LaiUhlrich2022.xml     --base-model ./models/OpenSim/LaiUhlrich2022.osim     --trc-type cannonical

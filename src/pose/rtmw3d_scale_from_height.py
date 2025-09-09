@@ -490,7 +490,7 @@ def main():
             print(f"[INFO] Upsampling TRC: {src_rate:.3f} Hz → {target_rate:.3f} Hz "
                   f"({'LPF off' if args.trc_no_filter else f'LPF {args.trc_lpf_hz:.2f} Hz'})")
             
-        trc_out = Path(args.trc_out) if args.trc_out else (rtmw3d_dir / f"rtmw3d{'_upsampled' if upsampling else ''}.trc")
+        trc_out = Path(args.trc_out) if args.trc_out else (rtmw3d_dir / f"rtmw3d_metric{'_upsampled' if upsampling else ''}.trc")
 
 
         write_trc_from_metric(

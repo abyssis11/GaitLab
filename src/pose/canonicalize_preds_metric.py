@@ -277,7 +277,7 @@ def main():
     log_info(f"Preds metric path : {preds_metric}")
     log_info(f"meta.json  : {meta_path}")
 
-    output_path = rtmw3d_dir / "preds_metric_canon.jsonl"
+    output_path = rtmw3d_dir / f"preds_metric{'_abs' if args.use_abs else ''}_canon.jsonl"
 
     meta = json.load(open(meta_path, 'r', encoding='utf-8'))
     kp_names = meta.get("keypoint_names") or []
@@ -288,7 +288,7 @@ def main():
 
     if args.export_trc:
         log_step(f"Exporting in TRC")
-        trc_outpath  = rtmw3d_dir / "rtmw3d_cannonical.trc"
+        trc_outpath  = rtmw3d_dir / f"rtmw3d{'_abs' if args.use_abs else ''}_cannonical.trc"
         export_trc(frames, trc_outpath, kp_names=kp_names, source_key="keypoints_xyz_mm_canonical", rate_hz=args.rate)
         log_step(f"TRC exported to {trc_outpath}")
 

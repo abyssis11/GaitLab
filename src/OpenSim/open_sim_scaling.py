@@ -12,20 +12,20 @@ python src/pose/rtmw3d_scale_from_height.py \
   --trc --trc-rate 100 --trc-lpf-hz 6.0
 
 python src/marker_enhancer/marker_enhancer2.py \
-      -m manifests/OpenCapDataset/subject2.yaml  \
-      -p config/paths.yaml  \
-      --trial static1  \
-      --body-model ./models/marker_enhancer/body \
-      --arms-model ./models/marker_enhancer/arm \
-      --upsampled
+    -m manifests/OpenCapDataset/subject2.yaml \
+    -p config/paths.yaml \
+    --trial static1 \
+    --models-path \
+    ./models/marker_enhancer/ \
+    --version 0.3 \
+    --upsampled
 
 And then:
 python src/OpenSim/open_sim_scaling.py \
     -m manifests/OpenCapDataset/subject2.yaml \
     -p config/paths.yaml \
     --trial static1 \
-    --scaling-xml \
-    ./models/OpenSim/Setup_scaling_LaiUhlrich2022.xml \
+    --scaling-xml ./models/OpenSim/Setup_scaling_LaiUhlrich2022.xml \
     --base-model ./models/OpenSim/LaiUhlrich2022.osim \
     --upsampled
 '''
@@ -157,6 +157,8 @@ def runScaleTool(pathGenericSetupFile, pathGenericModel, subjectMass,
             markerSetFileName = 'LaiUhlrich2022_markers_openpose.xml'
         elif 'mmpose' in setupFileName:
             markerSetFileName = 'LaiUhlrich2022_markers_mmpose.xml'
+        elif 'rtmw3d' in setupFileName:
+            markerSetFileName = 'LaiUhlrich2022_markers_rtmw3d.xml'
         else:
             if fixed_markers:
                 markerSetFileName = 'LaiUhlrich2022_markers_augmenter_fixed.xml'
@@ -290,7 +292,7 @@ def main():
     ap.add_argument("--trial", required=True)
     ap.add_argument("--scaling-xml", default=None, help="XML for scaling")
     ap.add_argument("--base-model", default=None, help="Base OSIM model")
-    ap.add_argument("--upsampled", action="store_true", help="Use upsampled trc as input")
+    ap.add_argument("--trc-type", required=True, choices=["metric_upsampled", "cannonical", "abs_cannonical", "world", "cam", "metric"])
 
     args = ap.parse_args()
 
@@ -321,7 +323,7 @@ def main():
     eval_dir = trial_root / "rtmw3d_eval"
     enh_dir  = trial_root / "enhancer"
     osim_dir  = trial_root / "OpenSim"
-    enh_output = os.path.join(enh_dir, f"enhancer_{args.trial}{'_upsampled' if args.upsampled else ''}.trc")
+    enh_output = os.path.join(enh_dir, f"enhancer_{args.trial}_{args.trc_type}.trc")
     ensure_dir(eval_dir); 
     ensure_dir(enh_dir)
     ensure_dir(osim_dir)
@@ -354,7 +356,7 @@ def main():
 
     # Get time range.
     try:
-        thresholdPosition = 0.05
+        thresholdPosition = 0.5
         maxThreshold = 100
         increment = 0.001
         success = False
@@ -377,7 +379,8 @@ def main():
                 mass_kg, enh_output, 
                 timeRange4Scaling, osim_dir,
                 subjectHeight=height_m, 
-                suffix_model='')
+                suffix_model='',
+                scaledModelName=f"LaiUhlrich2022_scaled_{args.trc_type}")
         else:
             log_warn('Did not start Scaling')
         
@@ -386,14 +389,6 @@ def main():
             log_warn(f"Error: {e.args[0]}, \n{e.args[1]}")
         elif len(e.args) == 1: # generic exception
             log_warn(f"Musculoskeletal model scaling failed. {e}")
-    # Extract one frame from videos to verify neutral pose.
-    #staticImagesFolderDir = os.path.join(sessionDir, 
-    #                                     'NeutralPoseImages')
-    #os.makedirs(staticImagesFolderDir, exist_ok=True)
-    #popNeutralPoseImages(cameraDirectories, cameras2Use, 
-    #                     timeRange4Scaling[0], staticImagesFolderDir,
-    #                     trial_id, writeVideo = True)   
-    #pathOutputIK = pathScaledModel[:-5] + '.mot'
-    #pathModelIK = pathScaledModel
+
 if __name__ == "__main__":
     main()

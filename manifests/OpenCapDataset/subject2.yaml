@@ -36,6 +36,7 @@ trials:
       video_sync: ${paths.root}/VideoData/Session1/Cam0/walking1/walking1_syncdWithMocap.avi
       video_raw:  ${paths.root}/VideoData/Session1/Cam0/walking1/walking1.avi
       mocap_trc:  ${paths.root}/MarkerData/Mocap/walking1.trc
+      open_pose:  ${paths.root}/MarkerData/Video/OpenPose_default/2-cameras/walking1_videoAndMocap.trc
       forces_mot: ${paths.root}/ForceData/walking1_forces.mot
 
     - id: walking2
