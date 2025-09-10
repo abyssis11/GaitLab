@@ -96,7 +96,7 @@ def main():
     ap.add_argument("-m", "--manifest", required=True)
     ap.add_argument("-p", "--paths", required=True)
     ap.add_argument("--trial", required=True)
-    ap.add_argument("--static-trial",  required=True)
+    ap.add_argument("--static-trial",  default='')
     ap.add_argument("--ik-xml", default=None, help="XML for IK")
     #ap.add_argument("--base-model", default=None, help="Base OSIM model")
     ap.add_argument("--trc-type", required=True, choices=["metric_upsampled", "cannonical", "abs_cannonical", "world", "cam", "metric"])
@@ -140,11 +140,11 @@ def main():
     if args.mocap:
         enh_output = trial["open_pose"]
     else:
-        enh_output = os.path.join(enh_dir, f"enhancer_{args.trial}_{args.trc_type}.trc"f"enhancer_{args.trial}_{args.trc_type}.trc")
+        enh_output = os.path.join(enh_dir, f"enhancer_{args.trial}_{args.trc_type}.trc")
 
     meta_path  = trial_root / "meta.json"
     ik_xml_path  = Path(args.ik_xml)
-    scaled_model_path = os.path.join(base, args.static_trial, "OpenSim", f"{'usporedba' if args.mocap else ''}", "LaiUhlrich2022_scaled.osim")
+    scaled_model_path = os.path.join(base, f"{args.static_trail if args.static_trial != '' else args.trial}", "OpenSim", f"{'usporedba' if args.mocap else ''}", f"LaiUhlrich2022_scaled_{args.trc_type}.osim")
 
     log_info(f"Trial root : {trial_root}")
     log_info(f"Enhancer output preds path : {enh_output}")

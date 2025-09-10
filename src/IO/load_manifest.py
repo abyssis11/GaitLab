@@ -56,7 +56,8 @@ def load_manifest(manifest_path, paths_path):
     # Initial variable context
     context = {
         'datasets': {
-            'opencap_root': paths_config['datasets']['opencap_root']
+            'opencap_root': paths_config['datasets']['opencap_root'],
+            'gpjatk_root': paths_config['datasets']['gpjatk_root']
         },
         'outputs_root': paths_config.get('outputs_root')
     }

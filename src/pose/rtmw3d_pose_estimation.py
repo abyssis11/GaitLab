@@ -499,6 +499,9 @@ def main():
 
             # Write meta once per subject/session/camera
             meta_root = meta_path.parent
+            cap, fps_file = open_video(vid_path)
+            fps_manifest = manifest.get('fps_video', 'auto')
+            fps = float(fps_file) if (fps_manifest == 'auto') else float(fps_manifest)
             if str(meta_root) not in wrote_meta_roots:
                 ensure_dir(meta_root)
                 session_meta_src = manifest.get("session_metadata")
@@ -536,14 +539,12 @@ def main():
                         "extrinsic_video": manifest["calibration"].get("extrinsic_video"),
                     },
                     "session_metadata": manifest.get("session_metadata"),
+                    "fps": fps
                 }
                 with open(meta_path, "w", encoding="utf-8") as mf:
                     json.dump(to_jsonable(meta_payload), mf, indent=2)
                 wrote_meta_roots.add(str(meta_root))
 
-            cap, fps_file = open_video(vid_path)
-            fps_manifest = manifest.get('fps_video', 'auto')
-            fps = float(fps_file) if (fps_manifest == 'auto') else float(fps_manifest)
 
             print(f"[INFO] {trial['id']} ({args.video_field}) → {out_path}")
             frame_idx = 0

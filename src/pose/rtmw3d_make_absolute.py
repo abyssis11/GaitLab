@@ -45,6 +45,7 @@ import numpy as np
 from IO.load_manifest import load_manifest
 import os
 import cv2
+import xml.etree.ElementTree as ET
 
 # ---------- Logging ----------
 def log_step(msg): print(f"[STEP] {msg}")
@@ -81,6 +82,115 @@ def _scores_to_mean(scores, K):
         out = np.full((K, s.shape[1]), np.nan, float); out[:min(K, s.shape[0]),:] = s[:min(K, s.shape[0]),:]
         s = out
     return np.nanmean(s, axis=1)
+
+def _Rx(a):
+    ca, sa = np.cos(a), np.sin(a)
+    return np.array([[1,0,0],[0,ca,-sa],[0,sa,ca]], float)
+
+def _Ry(a):
+    ca, sa = np.cos(a), np.sin(a)
+    return np.array([[ca,0,sa],[0,1,0],[-sa,0,ca]], float)
+
+def _Rz(a):
+    ca, sa = np.cos(a), np.sin(a)
+    return np.array([[ca,-sa,0],[sa,ca,0],[0,0,1]], float)
+
+def euler_matrix(rx, ry, rz, order="xyz"):
+    """
+    Return rotation matrix for intrinsic rotations about x,y,z in 'order'.
+    Column-vector convention: p_cam = R * p_world.
+    'xyz' means apply Rx, then Ry, then Rz -> R = Rz @ Ry @ Rx.
+    'zyx' means apply Rz, then Ry, then Rx -> R = Rx @ Ry @ Rz.
+    """
+    if order.lower() == "xyz":
+        return _Rz(rz) @ _Ry(ry) @ _Rx(rx)
+    elif order.lower() == "zyx":
+        return _Rx(rx) @ _Ry(ry) @ _Rz(rz)
+    else:
+        raise ValueError(f"Unsupported Euler order: {order}")
+
+def parse_xml_calibration_tsai(xml_path, angles="auto"):
+    """
+    Parse a Tsai-style <Camera> XML.
+
+    Geometry: width,height,[dpx,dpy] (pixel sizes; default 1).
+    Intrinsic: focal (pixels), cx, cy (pixels), sx (x-scale), kappa1 (radial k1).
+    Extrinsic: tx,ty,tz (mm), rx,ry,rz (either Rodrigues or Euler; controlled by 'angles').
+
+    Returns dict like the pickle:
+      intrinsicMat (3x3), distortion (1x5), rotation (3x3, world->camera, if present),
+      translation (3,1 in mm, if present), imageSize (W,H)
+    """
+    root = ET.parse(str(xml_path)).getroot()
+    cam = root if root.tag.lower() == "camera" else root.find(".//Camera")
+    if cam is None:
+        raise ValueError("XML must contain a <Camera> element.")
+
+    geom = cam.find("Geometry")
+    intr = cam.find("Intrinsic")
+    extr = cam.find("Extrinsic")
+    if geom is None or intr is None:
+        raise ValueError("XML missing <Geometry> or <Intrinsic>.")
+
+    W = int(float(geom.get("width")))
+    H = int(float(geom.get("height")))
+
+    # Pixel sizes (if present)
+    dpx = float(geom.get("dpx", "1.0"))
+    dpy = float(geom.get("dpy", "1.0"))
+
+    focal = float(intr.get("focal"))
+    sx = float(intr.get("sx", "1.0"))
+    cx = float(intr.get("cx")); cy = float(intr.get("cy"))
+
+    # Tsai -> OpenCV intrinsics
+    fx = focal * sx / dpx
+    fy = focal / dpy
+    K = np.array([[fx, 0.0, cx],
+                  [0.0, fy, cy],
+                  [0.0, 0.0, 1.0]], float)
+
+    k1 = float(intr.get("kappa1", "0"))
+    # Map Tsai radial-only to Brown model
+    dist = np.array([k1, 0.0, 0.0, 0.0, 0.0], float).reshape(1,5)
+
+    R_w2c = None; t_w2c = None
+    if extr is not None:
+        tx = float(extr.get("tx")); ty = float(extr.get("ty")); tz = float(extr.get("tz"))
+        t_w2c = np.array([tx, ty, tz], float).reshape(3,1)  # assume mm
+        rx = float(extr.get("rx")); ry = float(extr.get("ry")); rz = float(extr.get("rz"))
+
+        if angles == "rodrigues":
+            # Interpret (rx,ry,rz) as Rodrigues vector
+            R_w2c, _ = cv2.Rodrigues(np.array([rx,ry,rz], float).reshape(3,1))
+        elif angles == "euler-xyz":
+            R_w2c = euler_matrix(rx, ry, rz, order="xyz")
+        elif angles == "euler-zyx":
+            R_w2c = euler_matrix(rx, ry, rz, order="zyx")
+        else:
+            # auto: try Rodrigues by default
+            R_w2c, _ = cv2.Rodrigues(np.array([rx,ry,rz], float).reshape(3,1))
+
+    out = {
+        "intrinsicMat": K,
+        "distortion": dist,
+        "imageSize": (W, H),
+    }
+    if R_w2c is not None and t_w2c is not None:
+        out["rotation"] = R_w2c
+        out["translation"] = t_w2c
+    return out
+
+def load_calibration_any(path_like, angles="auto"):
+    p = Path(path_like)
+    if p.suffix.lower() in [".pkl", ".pickle"]:
+        with open(p, "rb") as pf:
+            return _pkl.load(pf)
+    elif p.suffix.lower() == ".xml":
+        return parse_xml_calibration_tsai(p, angles=angles)
+    else:
+        raise ValueError(f"Unsupported calibration file: {p}")
+
 
 
 def export_trc_from_series(frames, out_path, source_key="keypoints_cam_mm_abs", rate_hz=60.0, kp_names=None):
@@ -205,6 +315,11 @@ def main():
     ap.add_argument("--min-score", type=float, default=0.0, help="Drop joints below this score when solving PnP.")
     ap.add_argument("--undistort", choices=["auto","on","off"], default="auto", help="Undistort 2D keypoints before PnP.")
     ap.add_argument("--ema", type=float, default=0.0, help="EMA smoothing on translation (0=no smoothing, e.g., 0.2)")
+    ap.add_argument("--xml-angles",
+                choices=["auto","rodrigues","euler-xyz","euler-zyx"],
+                default="euler-xyz",
+                help="Interpretation of <Extrinsic rx,ry,rz> in Tsai XML.")
+
     args = ap.parse_args()
 
     log_step("Loading and resolving manifest")
@@ -247,32 +362,26 @@ def main():
     meta = json.load(open(meta_path, 'r', encoding='utf-8'))
     kp_names = meta.get("keypoint_names") or []
 
+    # Load calibration (pickle or Tsai XML)
+    calib = load_calibration_any(intrinsics_extrinsics, angles=args.xml_angles)
 
+    K = np.asarray(calib["intrinsicMat"], float)
+    dist = np.asarray(calib.get("distortion", np.zeros((1,5), float)), float).reshape(-1)
 
-
-
-
-
-    # Load calibration
-    with open(intrinsics_extrinsics, "rb") as pf:
-        calib = _pkl.load(pf)
-    K = np.asarray(calib["intrinsicMat"], dtype=float)
-    dist = np.asarray(calib["distortion"], dtype=float).reshape(-1)
     R_wc0 = None; t_wc0_mm = None
     if "rotation" in calib and "translation" in calib:
-        # Given world(=checkerboard) -> camera
-        R_w2c = np.asarray(calib["rotation"], dtype=float)
-        t_w2c = np.asarray(calib["translation"], dtype=float).reshape(3)
-        R_wc0, t_wc0_mm = _invert_extrinsics(R_w2c, t_w2c)  # camera -> world (mm units if t_w2c was mm)
+        R_w2c = np.asarray(calib["rotation"], float)
+        t_w2c = np.asarray(calib["translation"], float).reshape(3)
+        # Invert to camera->world for exporting world TRC
+        R_wc0, t_wc0_mm = _invert_extrinsics(R_w2c, t_w2c)
 
     frames = load_jsonl(preds_metric)
 
-    # Bounds & undistort auto check
+    # Image size (if present) for bounds checks
     W = H = None
     if "imageSize" in calib:
-        sz = np.asarray(calib["imageSize"]).reshape(-1)
-        if sz.size >= 2:
-            W, H = int(sz[0]), int(sz[1])
+        W, H = int(calib["imageSize"][0]), int(calib["imageSize"][1])
+
 
     # Sample a few frames to decide undistort
     do_undistort = True
