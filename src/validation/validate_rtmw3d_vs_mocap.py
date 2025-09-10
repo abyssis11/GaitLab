@@ -1019,9 +1019,7 @@ def main():
         "joint_set": args.joint_set,
         "eval_on": args.eval_on,
         "mocap_joint_centers": bool(args.mocap_joint_centers),
-        "center_mode": args.center,
-        "extrinsics_rotation_loaded": bool(R_mocap_to_video is not None),
-        "extrinsics_translation_loaded": bool(t_mocap_to_video is not None),
+        "center_mode": args.center
     }
     report_path = eval_dir / "report.json"
     report_path.write_text(json.dumps(jsonable(report), indent=2), encoding="utf-8")

@@ -1,0 +1,34 @@
+# Minimal subject manifest (OpenCap, Session1, Cam0 only)
+subject_id: subject3
+session: session1
+camera: cam3
+session_metadata: ${paths.root}/sessionMetadata.yaml
+
+# Let the loader auto-detect real FPS from the file header; override if you want 59.94 exactly.
+fps_video: 25
+fps_mocap: 100.0   # TRC sampling rate
+units:
+  video_space: pixels
+  mocap_markers: mm
+
+paths:
+  # per-subject root (absolute or relative to repo root—your choice)
+  root: ${datasets.gpjatk_root}/subject3
+
+calibration:
+  intrinsics_extrinsics: ${paths.root}/walking1/c3.xml
+
+# Tell the pipeline where to put artifacts
+output_dir: ${paths.root}/output
+
+trials:
+  healthy:
+    - id: walking1
+      video_sync: ${paths.root}/walking1/c3_0340.avi
+      mocap_trc:  ${paths.root}/walking1/subject3_mocap.trc
+      mocap_c3d:  ${paths.root}/walking1/p3s1.c3d
+      intrinsics_extrinsics: ${paths.root}/walking1/c3.xml
+
+
+
+

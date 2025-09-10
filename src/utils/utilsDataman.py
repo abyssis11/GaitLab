@@ -1,3 +1,6 @@
+'''
+Full credit to OpenCap (https://github.com/stanfordnmbl/opencap-core/tree/main)
+'''
 """Manages the movement and use of data files."""
 
 import os

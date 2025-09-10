@@ -1,0 +1,70 @@
+# Minimal subject manifest (OpenCap, Session1, Cam1 only)
+subject_id: subject5
+session: Session1
+camera: Cam1
+session_metadata: ${paths.root}/sessionMetadata.yaml
+
+# Let the loader auto-detect real FPS from the file header; override if you want 59.94 exactly.
+fps_video: auto
+fps_mocap: 100.0   # TRC sampling rate
+units:
+  video_space: pixels
+  mocap_markers: mm
+
+paths:
+  # per-subject root (absolute or relative to repo root—your choice)
+  root: ${datasets.opencap_root}/subject5
+
+calibration:
+  intrinsics_extrinsics: ${paths.root}/VideoData/Session1/Cam1/cameraIntrinsicsExtrinsics.pickle
+  mocap_to_video:        ${paths.root}/VideoData/Session1/mocapToVideoTransform.yaml
+  extrinsic_video:       ${paths.root}/VideoData/Session1/Cam1/extrinsics/extrinsics.avi
+
+# (Optional) Tell the pipeline where to put artifacts
+output_dir: ${paths.root}/output/session1_Cam1
+
+# (Optional) IK model references — see notes below.
+ik_models:
+  # Use this if your pipeline needs a *template* OSIM (kept in code/configs usually)
+  template_osim: configs/models/LaiArnoldModified2017_poly_withArms_weldHand_generic.osim
+  # Use this if you want to compare against OpenCap’s *scaled* model for this subject
+  reference_scaled_osim: ${paths.root}/OpenSimData/Video/HRNet/2-cameras/Model/LaiArnoldModified2017_poly_withArms_weldHand_scaled.osim
+
+trials:
+  healthy:
+    - id: walking1
+      video_sync: ${paths.root}/VideoData/Session1/Cam1/walking1/walking1_syncdWithMocap.avi
+      video_raw:  ${paths.root}/VideoData/Session1/Cam1/walking1/walking1.avi
+      mocap_trc:  ${paths.root}/MarkerData/Mocap/walking1.trc
+      forces_mot: ${paths.root}/ForceData/walking1_forces.mot
+
+    - id: walking2
+      video_sync: ${paths.root}/VideoData/Session1/Cam1/walking2/walking2_syncdWithMocap.avi
+      video_raw:  ${paths.root}/VideoData/Session1/Cam1/walking2/walking2.avi
+      mocap_trc:  ${paths.root}/MarkerData/Mocap/walking2.trc
+      forces_mot: ${paths.root}/ForceData/walking2_forces.mot
+
+    - id: walking3
+      video_sync: ${paths.root}/VideoData/Session1/Cam1/walking3/walking3_syncdWithMocap.avi
+      video_raw:  ${paths.root}/VideoData/Session1/Cam1/walking3/walking3.avi
+      mocap_trc:  ${paths.root}/MarkerData/Mocap/walking3.trc
+      forces_mot: ${paths.root}/ForceData/walking3_forces.mot
+
+  pathological:
+    - id: walkingTS1
+      video_sync: ${paths.root}/VideoData/Session1/Cam1/walkingTS1/walkingTS1_syncdWithMocap.avi
+      video_raw:  ${paths.root}/VideoData/Session1/Cam1/walkingTS1/walkingTS1.avi
+      mocap_trc:  ${paths.root}/MarkerData/Mocap/walkingTS1.trc
+      forces_mot: ${paths.root}/ForceData/walkingTS1_forces.mot
+
+    - id: walkingTS2
+      video_sync: ${paths.root}/VideoData/Session1/Cam1/walkingTS2/walkingTS2_syncdWithMocap.avi
+      video_raw:  ${paths.root}/VideoData/Session1/Cam1/walkingTS2/walkingTS2.avi
+      mocap_trc:  ${paths.root}/MarkerData/Mocap/walkingTS2.trc
+      forces_mot: ${paths.root}/ForceData/walkingTS2_forces.mot
+
+    - id: walkingTS4
+      video_sync: ${paths.root}/VideoData/Session1/Cam1/walkingTS4/walkingTS4_syncdWithMocap.avi
+      video_raw:  ${paths.root}/VideoData/Session1/Cam1/walkingTS4/walkingTS4.avi
+      mocap_trc:  ${paths.root}/MarkerData/Mocap/walkingTS4.trc
+      forces_mot: ${paths.root}/ForceData/walkingTS4_forces.mot
