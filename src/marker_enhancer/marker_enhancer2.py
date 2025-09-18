@@ -127,7 +127,8 @@ def main():
     ap.add_argument("--arms-model", default=None, help="Directory containing model.json, weights.h5, mean.npy, std.npy, metadata.json")
     ap.add_argument("--version", required=True, help="Use upsampled trc as input")
     ap.add_argument("--models-path", default=None)
-    ap.add_argument("--trc-type", required=True, choices=["metric_upsampled", "cannonical", "abs_cannonical", "world", "cam", "metric"])
+    ap.add_argument("--trc-type", required=True, choices=["metric_upsampled", "cannonical", "abs_cannonical", "world", "cam", "metric", "metrabs"])
+    ap.add_argument("--metrabs", action="store_true")
 
     args = ap.parse_args()
 
@@ -161,14 +162,20 @@ def main():
     rtmw3d_dir = trial_root / "rtmw3d"
     eval_dir = trial_root / "rtmw3d_eval"
     enh_dir  = trial_root / "enhancer"
+    metrabs_dir = trial_root / "metrabs"
     enh_output = os.path.join(enh_dir, f"enhancer_{args.trial}_{args.trc_type}.trc")
     ensure_dir(eval_dir)
     ensure_dir(enh_dir)
+        
 
     rtmw3d_trc = rtmw3d_dir / f"rtmw3d_{args.trc_type}.trc"
     meta_path  = trial_root / "meta.json"
     model_lower = f"v{args.version}_lower"
     model_upper = f"v{args.version}_upper"
+
+    if args.metrabs:
+        rtmw3d_trc = metrabs_dir / "metrabs_opensim_prediction.trc"
+
     log_info(f"Trial root : {trial_root}")
     log_info(f"Trc preds path : {rtmw3d_trc}")
     log_info(f"meta.json  : {meta_path}")
@@ -356,8 +363,8 @@ def main():
     
     # If offset
     if offset:
-        log_info(f"Offset: {-(min_y_pos-10.0)}")
-        trc_file.offset('y', -(min_y_pos-0.01))
+        log_info(f"Offset: {-(min_y_pos-0.02)}")
+        trc_file.offset('y', -(min_y_pos-0.02))
         
     # Return augmented .trc file   
     #trc_file.scale(1000, set_units="mm")

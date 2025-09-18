@@ -118,7 +118,8 @@ def getScaleTimeRange(pathTRCFile, thresholdPosition=0.005, thresholdTime=0.3,
                 i = 0
                 nf -= int(0.1*sf) 
             if np.round((nf-1)/sf,2) < thresholdTime: # number of frames got too small without detecting a window
-                log_warn(f"Musculoskeletal model scaling failed; could not detect a static phase of at least {thresholdTime}fs.")
+                #log_warn(f"Musculoskeletal model scaling failed; could not detect a static phase of at least {thresholdTime}fs.")
+                pass
     
     timeRange = [c_trc_time[i], c_trc_time[i+nf-1]]
     timeRangeSpan = np.round(timeRange[1] - timeRange[0], 2)
@@ -292,8 +293,8 @@ def main():
     ap.add_argument("--trial", required=True)
     ap.add_argument("--scaling-xml", default=None, help="XML for scaling")
     ap.add_argument("--base-model", default=None, help="Base OSIM model")
-    ap.add_argument("--trc-type", required=True, choices=["metric_upsampled", "cannonical", "abs_cannonical", "world", "cam", "metric"])
-
+    ap.add_argument("--trc-type", required=True, choices=["metric_upsampled", "cannonical", "abs_cannonical", "world", "cam", "metric", "metrabs"])
+    ap.add_argument("--metrabs-pred", action="store_true")
     args = ap.parse_args()
 
     log_step("Loading and resolving manifest")
@@ -324,9 +325,14 @@ def main():
     enh_dir  = trial_root / "enhancer"
     osim_dir  = trial_root / "OpenSim"
     enh_output = os.path.join(enh_dir, f"enhancer_{args.trial}_{args.trc_type}.trc")
-    ensure_dir(eval_dir); 
+    metrabs_dir = trial_root / "metrabs"
+    ensure_dir(eval_dir)
     ensure_dir(enh_dir)
     ensure_dir(osim_dir)
+    ensure_dir(metrabs_dir)
+
+    if args.metrabs_pred:
+        enh_output = os.path.join(metrabs_dir, "metrabs_opensim_prediction.trc")
 
     #osim_scaling_output = osim_dir / "model_scaled.osim"
     meta_path  = trial_root / "meta.json"
@@ -356,8 +362,8 @@ def main():
 
     # Get time range.
     try:
-        thresholdPosition = 0.5
-        maxThreshold = 100
+        thresholdPosition = 0.003
+        maxThreshold = 0.015
         increment = 0.001
         success = False
         while thresholdPosition <= maxThreshold and not success:
@@ -365,7 +371,7 @@ def main():
                 timeRange4Scaling = getScaleTimeRange(
                     enh_output,
                     thresholdPosition=thresholdPosition,
-                    thresholdTime=0.1, removeRoot=True)
+                    thresholdTime=0.1, removeRoot=True, withOpenPoseMarkers = True if args.metrabs_pred else False)
                 success = True
             except Exception as e:
                 log_warn(f"Attempt identifying scaling time range with thresholdPosition {thresholdPosition} failed: {e}")

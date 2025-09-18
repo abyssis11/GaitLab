@@ -99,8 +99,10 @@ def main():
     ap.add_argument("--static-trial",  default='')
     ap.add_argument("--ik-xml", default=None, help="XML for IK")
     #ap.add_argument("--base-model", default=None, help="Base OSIM model")
-    ap.add_argument("--trc-type", required=True, choices=["metric_upsampled", "cannonical", "abs_cannonical", "world", "cam", "metric"])
+    ap.add_argument("--trc-type", required=True, choices=["metric_upsampled", "cannonical", "abs_cannonical", "world", "cam", "metric", "metrabs"])
     ap.add_argument("--mocap", action="store_true",default=False)
+    ap.add_argument("--metrabs-pred", action="store_true")
+
 
 
     args = ap.parse_args()
@@ -132,13 +134,17 @@ def main():
     eval_dir = trial_root / "rtmw3d_eval"
     enh_dir  = trial_root / "enhancer"
     osim_dir  = trial_root / "OpenSim"
+    metrabs_dir = trial_root / "metrabs"
     ensure_dir(eval_dir); 
     ensure_dir(enh_dir)
     ensure_dir(osim_dir)
+    ensure_dir(metrabs_dir)
 
     #osim_scaling_output = osim_dir / "model_scaled.osim"
     if args.mocap:
         enh_output = trial["open_pose"]
+    elif args.metrabs_pred:
+        enh_output = os.path.join(metrabs_dir, "metrabs_opensim_prediction.trc")
     else:
         enh_output = os.path.join(enh_dir, f"enhancer_{args.trial}_{args.trc_type}.trc")
 
