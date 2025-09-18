@@ -71,6 +71,19 @@ import numpy as np
 # Joint mapping (marker -> joint)
 # -------------------------------
 
+METRABS_JOINTS = [
+    ("LASI",      ("LASI","LASI")),
+    ("RASI",     ("RASI","RASI")),
+    ("LKNE",     ("LKNE","LKNE")),
+    ("RKNE",    ("RKNE","RKNE")),
+    ("LANK",    ("LANK","LANK")),
+    ("RANK",   ("RANK","RANK")),
+    ("LHEE",     ("LHEE","LHEE")),
+    ("RHEE",    ("RHEE","RHEE")),
+    ("LTOE",  ("LTOE","LTOE")),
+    ("RTOE", ("RTOE","RTOE")),
+]
+
 BASIC_JOINTS_GPJATK = [
     ("left_hip",      ("left_hip","LASI")),
     ("right_hip",     ("right_hip","RASI")),
@@ -382,9 +395,12 @@ def compute_pelvis_mid(X: np.ndarray, joint_names: List[str]) -> np.ndarray:
         if "left_hip" and "right_hip" in joint_names:
             li = joint_names.index(_clean_name("left_hip"))
             ri = joint_names.index(_clean_name("right_hip"))
-        else:
+        elif "l.asis" and "r.asis" in joint_names:
             li = joint_names.index(_clean_name("l.asis"))
             ri = joint_names.index(_clean_name("r.asis"))
+        else:
+            li = joint_names.index(_clean_name("LASI"))
+            ri = joint_names.index(_clean_name("RASI"))
     except ValueError:
         # Fall back: try LASI/RASI from markers if they were mapped with same names
         raise ValueError("left_hip/right_hip not present in joint array; cannot compute pelvis midpoint.")
@@ -509,6 +525,53 @@ def compute_mpjpe(
     return per_frame, overall_mean, per_joint_mean
 
 
+def estimate_height_per_frame(X: np.ndarray, vertical_axis: int = 2) -> np.ndarray:
+    """
+    Estimate body height per frame as (max_z - min_z) over available joints.
+    X shape: (T, J, 3). vertical_axis=2 assumes Z is 'up' after axis mapping.
+    Returns h[t] with NaN where insufficient joints are present.
+    """
+    # Only consider joints that are fully observed at a frame
+    valid = ~np.isnan(X).any(axis=2)  # (T, J)
+    z = X[:, :, vertical_axis]        # (T, J)
+    # Mask z with validity
+    z_masked = np.where(valid, z, np.nan)
+    h = np.nanmax(z_masked, axis=1) - np.nanmin(z_masked, axis=1)  # (T,)
+    # If a frame has <2 valid joints, height becomes NaN
+    too_sparse = (np.sum(valid, axis=1) < 2)
+    h[too_sparse] = np.nan
+    return h
+
+def apply_height_normalization(
+    Xp: np.ndarray,
+    Xr: np.ndarray,
+    h_ref: np.ndarray | None = None,
+    subject_height_m: float | None = None
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """
+    Divide both prediction and reference by a scalar subject height.
+    If subject_height_m is given, use it. Otherwise, fall back to median(h_ref).
+    Returns (Xp_h, Xr_h, h_scalar_m) where h_scalar_m is the scalar height used.
+    """
+    if subject_height_m is not None:
+        h_scalar = float(subject_height_m)
+    else:
+        if h_ref is None:
+            raise ValueError("Height normalization requires either subject_height_m or h_ref.")
+        # Use a robust single height (median over valid frames).
+        h_scalar = float(np.nanmedian(h_ref))
+    if not np.isfinite(h_scalar) or h_scalar <= 0:
+        raise ValueError("Invalid subject height for normalization.")
+    # Per-frame normalization to 1 "height"
+    # Shape tricks to broadcast: (T, 1, 1)
+    #scale_pf = h_ref.reshape(-1, 1, 1)
+    # Fall back to h_med where per-frame height is NaN (or non-positive)
+    scale = h_scalar  # scalar normalization
+    Xp_h = Xp / scale
+    Xr_h = Xr / scale
+    return Xp_h, Xr_h, h_scalar
+
+
 def main():
     ap = argparse.ArgumentParser(description="Compute MPJPE between two TRC files with basic lower-limb mapping.")
     ap.add_argument("-m", "--manifest", required=True)
@@ -541,6 +604,12 @@ def main():
                     help="Optional JSON to save per-frame MPJPE and per-joint distances.")
     ap.add_argument("--enhanc", action="store_true", 
                     help="Validate enhancer")
+    ap.add_argument("--metrabs", action="store_true", 
+                    help="Validate metrabs")
+    ap.add_argument("--hnorm", action="store_true",
+                     help="Height-normalize both sequences using reference height; also report h-norm PA-MPJPE (unitless and mm).")
+    ap.add_argument("--subject-height-mm", type=float, default=None,
+                    help="Exact subject height in millimeters (overrides height estimation when --hnorm is used).")
     args = ap.parse_args()
 
     log_step("Loading and resolving manifest")
@@ -570,9 +639,13 @@ def main():
     eval_dir = trial_root / "rtmw3d_eval"
     enh_dir  = trial_root / "enhancer"
     enh_eval_dir  = trial_root / "enhancer_eval"
+    metrabs_dir = trial_root / "metrabs"; 
+    eval_dir_metrabs = trial_root / "metrabs_eval"
+    ensure_dir(metrabs_dir)
     ensure_dir(eval_dir)
     ensure_dir(enh_dir)
     ensure_dir(enh_eval_dir)
+    ensure_dir(eval_dir_metrabs)
 
     meta_path  = trial_root / "meta.json"
     prediction_trc = rtmw3d_dir / "rtmw3d_cannonical.trc"
@@ -583,6 +656,11 @@ def main():
         prediction_trc = enh_dir / f"enhancer_{args.trial}_cannonical.trc"
         mpjpe_out = enh_eval_dir / f"{subj}_enhancer_mpjpe.json"
         joints_mapping = BASIC_ENHANCER_STUDY
+
+    if args.metrabs:
+        prediction_trc = metrabs_dir / "metrabs_prediction.trc"
+        mpjpe_out = eval_dir_metrabs / f"{subj}_metrabs_mpjpe.json"
+        joints_mapping = METRABS_JOINTS
 
     #print(joints_mapping)
     log_info(f"reference_trc : {reference_trc}")
@@ -679,6 +757,33 @@ def main():
             out = f"{val*1000.0:.3f}" if not np.isnan(val) else "NaN"
             print(f"  {jname:>14s}: {out}")
 
+    if args.hnorm:
+        # Use exact height if provided; otherwise estimate from reference.
+        h_ref_pf = None
+        if args.subject_height_mm is None:
+            # vertical_axis=2 assumes Z is up with your 'vicon_to_rtmw3d' preset.
+            h_ref_pf = estimate_height_per_frame(Xr_rs, vertical_axis=2)
+        subject_height_m = (args.subject_height_mm / 1000.0) if args.subject_height_mm is not None else None
+        Xp_h, Xr_h, h_scalar_m = apply_height_normalization(
+            Xp_rs, Xr_rs, h_ref=h_ref_pf, subject_height_m=subject_height_m
+        )
+        # NOTE: To mirror the paper, PA-MPJPE usually uses similarity Procrustes.
+        # You can override via CLI, but we default to the user's chosen --procrustes here.
+        _, overall_h_unitless, _ = compute_mpjpe(
+            Xp_h, Xr_h,
+            root_center=root_center,
+            procrustes=args.procrustes,
+            joint_names=joints
+        )
+        # Report unitless ("fractions of height") and convert to mm using robust scalar height.
+        print("\nHeight-normalized results:")
+        print(f"  Subject height used: {h_scalar_m*1000.0:.1f} mm")
+        print(f"  PA-MPJPE (h-norm, unitless): {overall_h_unitless:.5f} [heights]")
+        print(f"  PA-MPJPE (h-norm, mm):       {overall_h_unitless * h_scalar_m * 1000.0:.3f} mm")
+        # If you prefer per-frame mm scaling, replace the previous line with:
+        #   h_pf_mm = np.where(np.isfinite(h_ref_pf), h_ref_pf*1000.0, h_med*1000.0)
+        #   print(f"  PA-MPJPE (h-norm, mm, per-frame): {(np.nanmean((per_frame/np.nanmean(per_frame))*h_pf_mm)):.3f} mm")
+
     # JSON report (optional)
     if args.out_json:
         def _to_num_or_none(x):
@@ -704,6 +809,12 @@ def main():
             "overall_mpjpe_mm": _to_num_or_none(overall*1000.0),
             "per_joint_mpjpe_mm": {k: _to_num_or_none(v*1000.0) for k, v in per_joint.items()} if per_joint else {},
         }
+        if args.hnorm:
+            report["hnorm"] = {
+                "subject_height_used_mm": _to_num_or_none(h_scalar_m*1000.0),
+                "pa_mpjpe_hnorm_unitless": _to_num_or_none(overall_h_unitless),
+                "pa_mpjpe_hnorm_mm": _to_num_or_none(overall_h_unitless * h_scalar_m * 1000.0),
+            }
         import json
         with open(mpjpe_out, "w", encoding="utf-8") as jf:
             json.dump(report, jf, indent=2)
