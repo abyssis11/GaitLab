@@ -460,7 +460,7 @@ def main():
     # Video
     cap = cv2.VideoCapture(vid_path)
     if not cap.isOpened():
-        raise SystemExit(f"[ERROR] Cannot open video: {vid_path}")
+        raise log_err(f"Cannot open video: {vid_path}")
     fps = cap.get(cv2.CAP_PROP_FPS) or 100.0
     num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
 
