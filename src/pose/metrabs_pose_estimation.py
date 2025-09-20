@@ -11,7 +11,7 @@ import pickle
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from mpl_toolkits.mplot3d import Axes3D
-
+from transforms3d.euler import euler2mat  
 # ---------- Logging ----------
 def log_step(msg): print(f"[STEP] {msg}")
 def log_info(msg): print(f"[INFO] {msg}")
@@ -220,9 +220,6 @@ def load_calibration_tsai(xml_path, img_w, img_h):
     return K, dist, T
 
 def load_calibration_pickle(pkl_path,
-                                   img_w, img_h,
-                                   resize_mode="scale",
-                                   rotation_90=None,  # None | 'ccw' | 'cw'
                                    dist_layout="opencv"  # 'opencv'=[k1,k2,p1,p2,k3], 'k123p12'=[k1,k2,k3,p1,p2]
                                    ):
     with open(pkl_path, 'rb') as f:
@@ -240,14 +237,6 @@ def load_calibration_pickle(pkl_path,
 
     # Intrinsics adjustment to your current frame size
     W0, H0 = int(round(size[0])), int(round(size[1]))
-    #K = adjust_K_for_resize(K0, (W0,H0), (img_w,img_h), mode=resize_mode)
-
-    # Optional 90° rotation handling (if your runtime frames are rotated)
-    #if rotation_90 in ("ccw","cw"):
-    #    K, (img_w,img_h) = rotate_K_90(K, (img_w,img_h), rotation_90)
-        # Note: R and t are in world/cam coordinates; if you physically rotate the image only,
-        # do NOT change R,t. If you actually rotated the camera’s axes in the real world,
-        # that’s a different transform.
 
     # Distortion ordering if your downstream expects k1,k2,k3,p1,p2
     if dist_layout == "k123p12" and dist.size >= 5:
@@ -382,6 +371,67 @@ def estimate_osim_basis(frames_xyz, marker_names):
         R_lab_to_osim = np.stack([fwd, up, right], axis=0)
     return R_lab_to_osim
 
+def overlay_axes_on_frame(frame_bgr, K, dist, T, axis_len=1000.0, thickness=3):
+    """
+    Draws principal point and world-origin axes on the *distorted* input frame.
+    K: (3,3) float32 intrinsics (portrait, no resize).
+    dist: (>=5,) float32 OpenCV distortion [k1,k2,p1,p2,k3] or None.
+    T: (4,4) float32 world->camera: X_cam = R X_world + t.
+    axis_len: in the SAME units as t (e.g., mm if your t is in mm).
+    """
+    K = np.asarray(K, np.float32)
+    T = np.asarray(T, np.float32)
+    dist = None if dist is None else np.asarray(dist, np.float32).reshape(-1)
+
+    R = T[:3, :3].astype(np.float32)
+    t = T[:3, 3].astype(np.float32).reshape(3, 1)
+
+    # Points in world coords: origin and unit axes scaled by axis_len
+    pts3d = np.float32([
+        [0, 0, 0],
+        [axis_len, 0, 0],   # +X
+        [0, axis_len, 0],   # +Y
+        [0, 0, axis_len],   # +Z
+    ])
+
+    # Project 3D -> 2D (use OpenCV's distortion model if you pass 'dist')
+    # cv2.projectPoints expects rvec/tvec; convert R->rvec
+    rvec, _ = cv2.Rodrigues(R)
+    pts2d, _ = cv2.projectPoints(pts3d, rvec, t, K, dist)
+    pts2d = pts2d.reshape(-1, 2).astype(int)
+    o, x, y, z = [tuple(p) for p in pts2d]
+
+    img = frame_bgr.copy()
+
+    # Draw principal point (magenta) for a quick K sanity check
+    cx, cy = int(round(K[0, 2])), int(round(K[1, 2]))
+    cv2.circle(img, (cx, cy), 6, (255, 0, 255), -1)  # BGR
+
+    # Draw axes from origin: X=red, Y=green, Z=blue
+    cv2.circle(img, o, 6, (0, 255, 255), -1)       # origin (yellow)
+    cv2.line(img, o, x, (0, 0, 255), thickness)    # X (red)
+    cv2.line(img, o, y, (0, 255, 0), thickness)    # Y (green)
+    cv2.line(img, o, z, (255, 0, 0), thickness)    # Z (blue)
+
+    # Labels (optional)
+    cv2.putText(img, "X", x, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255), 2, cv2.LINE_AA)
+    cv2.putText(img, "Y", y, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2, cv2.LINE_AA)
+    cv2.putText(img, "Z", z, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,0,0), 2, cv2.LINE_AA)
+    cv2.putText(img, "pp", (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,0,255), 2, cv2.LINE_AA)
+
+    return img
+
+def sanity_prints(K, T):
+    K64 = K.astype(np.float64)
+    R64 = T[:3, :3].astype(np.float64)
+    detK = float(np.linalg.det(K64))
+    detR = float(np.linalg.det(R64))
+    C = -R64.T @ T[:3, 3].astype(np.float64)  # camera center in world coords
+    print(f"det(K)={detK:.6f}  (should be != 0)")
+    print(f"det(R)={detR:.6f}  (should be ~ +1)")
+    print(f"principal point: ({K[0,2]:.1f}, {K[1,2]:.1f})")
+    print(f"camera center (world): {C}  ||C||={np.linalg.norm(C):.3f}")
+
 
 # ---------- Main ----------
 def main():
@@ -464,8 +514,7 @@ def main():
     log_step("Loading calibration")
     if args.calib_pickle:
         K_np, dist_np, T_np = load_calibration_pickle(
-            Path(calib),
-            img_w=W, img_h=H
+            Path(calib)
         )
     else:
         K_np, dist_np, T_np = load_calibration_tsai(Path(calib), img_w=W, img_h=H)
@@ -473,6 +522,12 @@ def main():
     K   = tf.constant(K_np,   tf.float32)
     dist= tf.constant(dist_np, tf.float32)
     T   = tf.constant(T_np,   tf.float32)
+
+    sanity_prints(K_np, T_np)
+    overlay = overlay_axes_on_frame(frame_bgr, K_np, dist, T_np, axis_len=1000.0, thickness=3)
+    cv2.imwrite("calib_overlay.png", overlay)
+
+    print(f"K:\n{K_np}\ndist:\n{dist_np}\nT:\n{T_np}")
 
     # Model
     log_step("Loading model")
@@ -538,9 +593,7 @@ def main():
     for fi in range(num_frames):
         ok, frame_bgr = cap.read()
         if not ok or frame_bgr is None:
-            # pad with NaNs if video ended early
-            xyz = np.full((len(MARKER_ORDER), 3), np.nan, dtype=np.float32)
-            frames_xyz.append(xyz); continue
+            continue
 
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         image_tf = tf.convert_to_tensor(frame_rgb, dtype=tf.uint8)
@@ -549,12 +602,13 @@ def main():
 
         pred = model.detect_poses(
             image_tf, skeleton=skeleton,
-            #default_fov_degrees = 90,
+            #default_fov_degrees = 70,
             intrinsic_matrix=K,
             distortion_coeffs=dist,
             extrinsic_matrix=T,
-            world_up_vector=(0, 1, 0),
-            suppress_implausible_poses=False
+            #world_up_vector=(1,1,0),
+            suppress_implausible_poses=False,
+            max_detections=1,
         )
 
         if pred['boxes'].shape[0] == 0:

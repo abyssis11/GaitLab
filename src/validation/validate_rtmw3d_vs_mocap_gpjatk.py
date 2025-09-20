@@ -84,6 +84,19 @@ METRABS_JOINTS = [
     ("RTOE", ("RTOE","RTOE")),
 ]
 
+METRABS_JOINTS_OCAP = [
+    ("LASI",      ("L.ASIS","LASI")),
+    ("RASI",     ("r.ASIS","RASI")),
+    ("LKNE",     ("L_knee","LKNE")),
+    ("RKNE",    ("r_knee","RKNE")),
+    ("LANK",    ("L_ankle","LANK")),
+    ("RANK",   ("r_ankle","RANK")),
+    ("LHEE",     ("L_calc","LHEE")),
+    ("RHEE",    ("r_calc","RHEE")),
+    ("LTOE",  ("L_toe","LTOE")),
+    ("RTOE", ("r_toe","RTOE")),
+]
+
 BASIC_JOINTS_GPJATK = [
     ("left_hip",      ("left_hip","LASI")),
     ("right_hip",     ("right_hip","RASI")),
@@ -606,6 +619,8 @@ def main():
                     help="Validate enhancer")
     ap.add_argument("--metrabs", action="store_true", 
                     help="Validate metrabs")
+    ap.add_argument("--metrabs-ocap", action="store_true", 
+                    help="Validate metrabs")
     ap.add_argument("--hnorm", action="store_true",
                      help="Height-normalize both sequences using reference height; also report h-norm PA-MPJPE (unitless and mm).")
     ap.add_argument("--subject-height-mm", type=float, default=None,
@@ -630,10 +645,8 @@ def main():
     # Paths
     base = manifest.get('output_dir')
     subj = manifest.get('subject_id', 'subject')
-    if not base:
-        sess = manifest.get('session', 'Session')
-        cam  = manifest.get('camera', 'Cam')
-        base = Path(manifest.get('outputs_root', Path.cwd() / "outputs")) / subj / sess / cam
+    sess = manifest.get('session', 'Session')
+    cam  = manifest.get('camera', 'Cam')
     trial_root = Path(base) / trial['id']
     rtmw3d_dir = trial_root / "rtmw3d"
     eval_dir = trial_root / "rtmw3d_eval"
@@ -661,6 +674,16 @@ def main():
         prediction_trc = metrabs_dir / "metrabs_prediction.trc"
         mpjpe_out = eval_dir_metrabs / f"{subj}_metrabs_mpjpe.json"
         joints_mapping = METRABS_JOINTS
+    
+    if args.metrabs_ocap:
+        prediction_trc = metrabs_dir / "metrabs_prediction.trc"
+        mpjpe_out = eval_dir_metrabs / f"{subj}_metrabs_mpjpe.json"
+        joints_mapping = METRABS_JOINTS_OCAP
+
+    if args.enhanc and args.metrabs:
+        prediction_trc = enh_dir / f"enhancer_{args.trial}_metrabs.trc"
+        mpjpe_out = enh_eval_dir / f"{subj}_{cam}_enhancer_mpjpe.json"
+        joints_mapping = BASIC_ENHANCER_STUDY
 
     #print(joints_mapping)
     log_info(f"reference_trc : {reference_trc}")
