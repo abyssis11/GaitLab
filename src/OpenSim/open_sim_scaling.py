@@ -362,8 +362,8 @@ def main():
 
     # Get time range.
     try:
-        thresholdPosition = 0.003
-        maxThreshold = 0.015
+        thresholdPosition = 0.005
+        maxThreshold = 0.030
         increment = 0.001
         success = False
         while thresholdPosition <= maxThreshold and not success:

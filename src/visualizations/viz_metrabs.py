@@ -90,59 +90,47 @@ def load_calibration_tsai(xml_path, img_w, img_h):
     T[:3, 3] = t.astype(np.float32)
     return K, dist, T
 
-def load_calibration_pickle(pkl_path, img_w, img_h,
-                            rot_is_world_to_cam=True,
-                            units='mm'):
-    """
-    pkl contains:
-      - 'intrinsicMat': (3,3)
-      - 'distortion'  : (1,5)
-      - 'imageSize'   : (2,1) [width, height]
-      - 'rotation'    : (3,3)
-      - 'translation' : (3,1)
-    Returns K (3x3), dist (5,), T (4x4) in float32.
-    T maps world->camera: X_cam = R * X_world + t
-    Scales K if image size differs from current (img_w,img_h).
-    """
+def load_calibration_pickle(pkl_path,
+                                   img_w, img_h,
+                                   resize_mode="scale",
+                                   rotation_90=None,  # None | 'ccw' | 'cw'
+                                   dist_layout="opencv"  # 'opencv'=[k1,k2,p1,p2,k3], 'k123p12'=[k1,k2,k3,p1,p2]
+                                   ):
     with open(pkl_path, 'rb') as f:
         calib = pickle.load(f)
 
     K0   = np.asarray(calib['intrinsicMat'], dtype=np.float64)
     dist = np.asarray(calib['distortion'],   dtype=np.float64).reshape(-1)
-    size = np.asarray(calib['imageSize'],    dtype=np.float64).reshape(-1)
+    size = np.asarray(calib['imageSize'],    dtype=np.float64).reshape(-1)  # [W0,H0]
     R    = np.asarray(calib['rotation'],     dtype=np.float64)
     t    = np.asarray(calib['translation'],  dtype=np.float64).reshape(3)
 
-    # Units
-    if units.lower().startswith('m'):  # meters -> millimetres
-        t = t * 1000.0
+    # Keep as world->camera (this matches your working XML math)
+    # Camera center if you ever need it:
+    C = -R.T @ t
 
-    # If rotation is cam->world, invert to world->cam
-    if not rot_is_world_to_cam:
-        # X_world = R * X_cam + t  ->  X_cam = R^T X_world - R^T t
-        R = R.T
-        t = -R @ t
-
-    # Scale intrinsics if image size differs
-    # size = [width, height]
+    # Intrinsics adjustment to your current frame size
     W0, H0 = int(round(size[0])), int(round(size[1]))
-    if (W0 != img_w) or (H0 != img_h):
-        sx = img_w / float(W0)
-        sy = img_h / float(H0)
-        K_scaled = np.array([[K0[0,0]*sx, 0.0,        K0[0,2]*sx],
-                             [0.0,        K0[1,1]*sy, K0[1,2]*sy],
-                             [0.0,        0.0,        1.0      ]], dtype=np.float64)
-    else:
-        K_scaled = K0
+    #K = adjust_K_for_resize(K0, (W0,H0), (img_w,img_h), mode=resize_mode)
 
-    # Pack outputs
-    K_out   = K_scaled.astype(np.float32)
-    dist_out= dist.astype(np.float32)
-    T       = np.eye(4, dtype=np.float32)
-    T[:3,:3]= R.astype(np.float32)
-    T[:3, 3]= t.astype(np.float32)
-    return K_out, dist_out, T
+    # Optional 90° rotation handling (if your runtime frames are rotated)
+    #if rotation_90 in ("ccw","cw"):
+    #    K, (img_w,img_h) = rotate_K_90(K, (img_w,img_h), rotation_90)
+        # Note: R and t are in world/cam coordinates; if you physically rotate the image only,
+        # do NOT change R,t. If you actually rotated the camera’s axes in the real world,
+        # that’s a different transform.
 
+    # Distortion ordering if your downstream expects k1,k2,k3,p1,p2
+    if dist_layout == "k123p12" and dist.size >= 5:
+        k1,k2,p1,p2,k3 = dist[:5]
+        dist = np.array([k1,k2,k3,p1,p2] + list(dist[5:]), dtype=np.float64)
+
+    # Build T (world->camera)
+    T = np.eye(4, dtype=np.float32)
+    T[:3,:3] = R.astype(np.float32)
+    T[:3, 3] = t.astype(np.float32)
+
+    return K0.astype(np.float32), dist.astype(np.float32), T
 
 def download_model(model_type: str) -> str:
     server_prefix = 'https://omnomnom.vision.rwth-aachen.de/data/metrabs'
@@ -173,6 +161,13 @@ def download_model(model_type: str) -> str:
         raise RuntimeError("Model extraction failed (saved_model.pb missing).")
     return str(out_dir)
 
+def to_np(x, dtype=np.float64):
+    if x is None:
+        return None
+    if tf.is_tensor(x):
+        return x.numpy().astype(dtype, copy=False)
+    return np.asarray(x, dtype=dtype)
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-m", "--manifest", required=True, help="Path to manifest.yaml")
@@ -196,11 +191,6 @@ def main():
     
 
     args = ap.parse_args()
-
-    first_img = None
-    first_boxes = None
-    first_p3d = None
-    first_p2d = None
 
     skeleton = args.skeleton
     log_step("Loading and resolving manifest")
@@ -255,9 +245,7 @@ def main():
     if args.calib_pickle:
         K_np, dist_np, T_np = load_calibration_pickle(
             Path(calib),
-            img_w=W, img_h=H,
-            rot_is_world_to_cam=not args.pkl_rot_cam2world,
-            units=('m' if args.pkl_units_m else 'mm')
+            img_w=W, img_h=H
         )
     else:
         K_np, dist_np, T_np = load_calibration_tsai(Path(calib), img_w=W, img_h=H)
@@ -278,7 +266,7 @@ def main():
     edges_np = np.asarray(model.per_skeleton_joint_edges[skeleton].numpy())
     edges_np = edges_np.astype(np.int64)
 
-    camera = cameravision.Camera(intrinsic_matrix=K, world_up=(0, 1, 0))
+    camera = cameravision.Camera(intrinsic_matrix=K, world_up=(0, 1, 0), extrinsic_matrix=T_np)
 
     # Accept both (N,2) and (2,N)
     if edges_np.ndim == 2 and edges_np.shape[0] == 2 and edges_np.shape[1] != 2:
@@ -293,19 +281,21 @@ def main():
     out_path = Path("./random_outputs/viz.mp4")
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with poseviz.PoseViz(joint_names=joint_names, joint_edges=joint_edges, camera_type="free", viz_fps=25) as viz:
-        viz.new_sequence_output(str(out_path), fps=25)
+    with poseviz.PoseViz(joint_names=joint_names, joint_edges=joint_edges, camera_type="free", viz_fps=fps) as viz:
+        viz.new_sequence_output(str(out_path), fps=fps)
         for fi in range(num_frames):
             ok, frame_bgr = cap.read()
+            if not ok or frame_bgr is None:
+                break
             frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
             image_tf = tf.convert_to_tensor(frame_rgb, dtype=tf.uint8)
             log_info(f"Prediction for frame {fi}")
             pred = model.detect_poses(
                 image_tf, skeleton=skeleton,
-                #default_fov_degrees = 90,
+                #default_fov_degrees = 70,
                 intrinsic_matrix=K,
                 distortion_coeffs=dist,
-                #extrinsic_matrix=T,
+                extrinsic_matrix=T,
                 suppress_implausible_poses=False
             )
 
@@ -315,7 +305,7 @@ def main():
 
             log_info(f"Viz for frame {fi}")
             viz.update(frame=image_tf, boxes=boxes, poses=p3d, camera=camera)
-            #time.sleep(1000)
+            #time.sleep(5)
 
 if __name__ == "__main__":
     # make TF not pre-allocate all VRAM
