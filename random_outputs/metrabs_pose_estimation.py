@@ -606,7 +606,7 @@ def main():
             intrinsic_matrix=K,
             distortion_coeffs=dist,
             extrinsic_matrix=T,
-            #world_up_vector=(1,1,0),
+            world_up_vector=(0,1,0),
             suppress_implausible_poses=False,
             max_detections=1,
         )
@@ -632,7 +632,7 @@ def main():
         heel_r = synthesize_heel(J("rank"), J("rtoe"), J("rkne"))
         heel_l = synthesize_heel(J("lank"), J("ltoe"), J("lkne"))
 
-        if fi == 60:
+        if fi == 24:
             first_img = image_tf.numpy()                  # RGB HxWx3, uint8
             first_boxes = pred['boxes'].numpy()           # (D, 5) or similar
             first_p3d   = pred['poses3d'].numpy()         # (D, J, 3)
@@ -709,7 +709,7 @@ def main():
         first_p3d,
         first_p2d,
         model.per_skeleton_joint_edges[skeleton].numpy(),
-        save_to=str("visual5.png"),
+        save_to=str("visual6.png"),
         # If you passed extrinsic_matrix=T above, set True so we DON'T apply camera-frame swap.
         use_extrinsics=True,
         R=T_np[:3, :3],

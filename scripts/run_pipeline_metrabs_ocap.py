@@ -36,11 +36,10 @@ def run_step(cmd: str, *, cwd: str = None) -> None:
         raise SystemExit(proc.returncode)
 
 def main():
-    MANIFEST = "./manifests/OpenCapDataset/subject3-2.yaml"
+    MANIFEST = "./manifests/OpenCapDataset/subject7-2.yaml"
     CONFIG = "./config/paths.yaml"
     TRIAL = "walking1"
-    SUBJECT_H = 1690
-
+    SUBJECT_H = 1680
     # Commands as provided (kept verbatim on purpose).
     steps = [
         #f"python src/pose/metrabs_pose_estimation.py  -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --video-field video_sync --calib-pickle",
