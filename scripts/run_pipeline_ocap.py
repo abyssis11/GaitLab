@@ -48,11 +48,11 @@ def main():
 
         f"python src/pose/canonicalize_preds_metric.py     -m {MANIFEST}   -p {CONFIG}     --trial {TRIAL} --export-trc     --mode per-frame",
 
-        f"python src/marker_enhancer/marker_enhancer2.py     -m {MANIFEST}   -p {CONFIG}     --trial {TRIAL} --models-path     ./models/marker_enhancer/     --version 0.3     --trc-type cannonical",
+        #f"python src/marker_enhancer/marker_enhancer2.py     -m {MANIFEST}   -p {CONFIG}     --trial {TRIAL} --models-path     ./models/marker_enhancer/     --version 0.3     --trc-type cannonical",
 
         f"python src/validation/validate_rtmw3d_vs_mocap.py   -m {MANIFEST}    -p {CONFIG}   --trial {TRIAL}  --joint-set basic --estimate-offset",
 
-        f"python src/validation/validate_rtmw3d_vs_mocap_gpjatk.py  -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --root-center pelvis --summary-per-joint --procrustes similarity --resample-to mocap --out-json --enhanc"
+        #f"python src/validation/validate_rtmw3d_vs_mocap_gpjatk.py  -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --root-center pelvis --summary-per-joint --procrustes-both --resample-to mocap --out-json --enhanc"
     ]
 
     print("Pipeline starting...")

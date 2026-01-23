@@ -972,11 +972,11 @@ def main():
     log_info("Per-joint metrics (rotation-only) [mm]:")
     for jn in joints:
         log_info(f"  {jn:>15s}  MPJPE={mpjpe_per_joint_rot[jn]:7.2f}  RMSE={rmse_per_joint_rot[jn]:7.2f}")
-    log_info(f"OVERALL MPJPE (rot-only) [mm] : {overall_mpjpe_rot:.2f}")
-    log_info(f"OVERALL RMSE  (rot-only) [mm] : {overall_rmse_rot:.2f}")
+    log_info(f"Rigid PA-MPJPE [mm] : {overall_mpjpe_rot:.2f}")
+    log_info(f"OVERALL RMSE  (rot-only)[mm] : {overall_rmse_rot:.2f}")
     log_info(f"OVERALL T-only MPJPE    [mm]  : {overall_tonly:.2f}")
     log_info(f"OVERALL N-MPJPE         [mm]  : {overall_nmpjpe:.2f}")
-    log_info(f"OVERALL PA-MPJPE        [mm]  : {overall_pampjpe:.2f}")
+    log_info(f"Similarity PA-MPJPE     [mm]  : {overall_pampjpe:.2f}")
 
     # Optional export of the estimated Kabsch rotation (sequence-specific)
     if args.export_rotation:
@@ -1011,11 +1011,11 @@ def main():
         "mocap_markers_used": used_markers,
         "per_joint_rot_only_mpjpe_mm": mpjpe_per_joint_rot,
         "per_joint_rot_only_rmse_mm": rmse_per_joint_rot,
-        "overall_mpjpe_rot_only_mm": overall_mpjpe_rot,
         "overall_rmse_rot_only_mm": overall_rmse_rot,
         "overall_t_only_mpjpe_mm": overall_tonly,
         "overall_n_mpjpe_mm": overall_nmpjpe,
-        "overall_pa_mpjpe_mm": overall_pampjpe,
+        "overall_rigid_pa_mpjpe_mm": overall_mpjpe_rot,
+        "overall_similarity_pa_mpjpe_mm": overall_pampjpe,
         "joint_set": args.joint_set,
         "eval_on": args.eval_on,
         "mocap_joint_centers": bool(args.mocap_joint_centers),
@@ -1040,7 +1040,7 @@ def main():
         log_info(f"Aligned series saved: {out_npz}")
 
     log_done(
-        "SUMMARY | center={} | MPJPE(rot-only)={:.2f} mm | T-only={:.2f} mm | N-MPJPE={:.2f} mm | PA-MPJPE={:.2f} mm | scale={:.6f}".format(
+        "SUMMARY | center={} | RIGID PA-MPJPE(rot-only)={:.2f} mm | T-only={:.2f} mm | N-MPJPE={:.2f} mm | SIMILARITY PA-MPJPE={:.2f} mm | scale={:.6f}".format(
             args.center, overall_mpjpe_rot, overall_tonly, overall_nmpjpe, overall_pampjpe, s_sim
         )
     )

@@ -625,6 +625,8 @@ def main():
                      help="Height-normalize both sequences using reference height; also report h-norm PA-MPJPE (unitless and mm).")
     ap.add_argument("--subject-height-mm", type=float, default=None,
                     help="Exact subject height in millimeters (overrides height estimation when --hnorm is used).")
+    ap.add_argument("--procrustes-both", action="store_true",
+                help="Compute and report BOTH rigid and similarity PA-MPJPE in one run (ignores --procrustes for reporting).")
     args = ap.parse_args()
 
     log_step("Loading and resolving manifest")
@@ -752,12 +754,17 @@ def main():
 
     # Compute MPJPE
     root_center = (args.root_center == 'pelvis')
-    per_frame, overall, per_joint = compute_mpjpe(
-        Xp_rs, Xr_rs, 
-        root_center=root_center, 
-        procrustes=args.procrustes,
-        joint_names=joints
-    )
+    modes = ["rigid", "similarity"] if args.procrustes_both else [args.procrustes]
+
+    results = {}
+    for mode in modes:
+        pf, ov, pj = compute_mpjpe(
+            Xp_rs, Xr_rs,
+            root_center=root_center,
+            procrustes=mode,
+            joint_names=joints
+        )
+        results[mode] = {"per_frame": pf, "overall": ov, "per_joint": pj}
 
     # Report
     print("MPJPE evaluation")
@@ -768,17 +775,12 @@ def main():
     print(f"Axis map (prediction): {pred_expr}")
     print(f"Axis map (reference):  {ref_expr}")
     print(f"Root-centering: {'pelvis' if root_center else 'none'}")
-    print(f"Procrustes: {args.procrustes}")
     print(f"Resampled onto {len(t_dst)} frames (t in [{t_dst[0]:.3f}, {t_dst[-1]:.3f}] s).")
-    print(f"Overall MPJPE: {overall*1000.0:.3f} mm")  # show in mm by default
-
-    if args.summary_per_joint:
-        print("\nPer-joint MPJPE (mm):")
-        # Sort by joint name for readability
-        for jname in sorted(per_joint.keys()):
-            val = per_joint[jname]
-            out = f"{val*1000.0:.3f}" if not np.isnan(val) else "NaN"
-            print(f"  {jname:>14s}: {out}")
+    print(f"Procrustes: {'rigid+similarity' if args.procrustes_both else args.procrustes}")
+    for mode in modes:
+        ov = results[mode]["overall"]
+        label = "Rigid PA-MPJPE" if mode == "rigid" else ("Similarity PA-MPJPE" if mode == "similarity" else f"{mode} MPJPE")
+        print(f"Overall {label}: {ov*1000.0:.3f} mm")
 
     if args.hnorm:
         # Use exact height if provided; otherwise estimate from reference.
@@ -823,14 +825,19 @@ def main():
             "reference_trc": str(reference_trc),
             "axis_map": {"prediction": pred_expr, "reference": ref_expr},
             "root_centering": "pelvis" if root_center else "none",
-            "procrustes": args.procrustes,
             "resampled": {
                 "num_frames": int(len(t_dst)),
                 "time_start_s": _to_num_or_none(t_dst[0] if len(t_dst) > 0 else None),
                 "time_end_s": _to_num_or_none(t_dst[-1] if len(t_dst) > 0 else None),
             },
-            "overall_mpjpe_mm": _to_num_or_none(overall*1000.0),
-            "per_joint_mpjpe_mm": {k: _to_num_or_none(v*1000.0) for k, v in per_joint.items()} if per_joint else {},
+            "procrustes": "rigid+similarity" if args.procrustes_both else args.procrustes,
+            "results": {
+                mode: {
+                    "overall_mpjpe_mm": _to_num_or_none(results[mode]["overall"] * 1000.0),
+                    "per_joint_mpjpe_mm": {k: _to_num_or_none(v*1000.0) for k, v in results[mode]["per_joint"].items()}
+                }
+                for mode in modes
+            },
         }
         if args.hnorm:
             report["hnorm"] = {

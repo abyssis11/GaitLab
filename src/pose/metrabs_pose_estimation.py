@@ -606,7 +606,7 @@ def main():
             intrinsic_matrix=K,
             distortion_coeffs=dist,
             extrinsic_matrix=T,
-            world_up_vector=(0,1,0),
+            #world_up_vector=(0,-1,0),
             suppress_implausible_poses=False,
             max_detections=1,
         )
@@ -689,19 +689,19 @@ def main():
     log_done(f"TRC written: {prediction_trc}")
 
     # Debug stats
-    k = int(tf.argmax(pred['detection_scores'], axis=0)) if 'detection_scores' in pred else 0
-    R = T_np[:3, :3]
-    t = T_np[:3, 3:4]
-    P3d_pred = pred['poses3d'][k].numpy()  
-    P3d_cam = (R @ P3d_pred.T + t).T
+    #k = int(tf.argmax(pred['detection_scores'], axis=0)) if 'detection_scores' in pred else 0
+    #R = T_np[:3, :3]
+    #t = T_np[:3, 3:4]
+    #P3d_pred = pred['poses3d'][k].numpy()  
+    #P3d_cam = (R @ P3d_pred.T + t).T
     #P3d_cam = pred['poses3d'][k].numpy()        # (J,3), camera coords in mm
-    p2d_pred = pred['poses2d'][k].numpy()       # (J,2), px
-    p2d_proj = project_cam(P3d_cam, K_np)       # K_np = EXACT matrix you passed
+    #p2d_pred = pred['poses2d'][k].numpy()       # (J,2), px
+    #p2d_proj = project_cam(P3d_cam, K_np)       # K_np = EXACT matrix you passed
 
-    err = np.linalg.norm(p2d_proj - p2d_pred, axis=1).mean()
-    print("Mean 2D reprojection error [px]:", err)
-    print("Z stats (mm):", P3d_cam[:,2].min(), P3d_cam[:,2].mean(), P3d_cam[:,2].max())
-    print(joint_names)
+    #err = np.linalg.norm(p2d_proj - p2d_pred, axis=1).mean()
+    #print("Mean 2D reprojection error [px]:", err)
+    #print("Z stats (mm):", P3d_cam[:,2].min(), P3d_cam[:,2].mean(), P3d_cam[:,2].max())
+    #print(joint_names)
 
     visualize(
         first_img,

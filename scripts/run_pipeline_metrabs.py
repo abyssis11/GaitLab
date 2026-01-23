@@ -45,7 +45,7 @@ def main():
     steps = [
         f"python src/pose/metrabs_pose_estimation.py  -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --video-field video_sync",
 
-        f"python src/validation/validate_rtmw3d_vs_mocap_gpjatk.py -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --root-center pelvis --summary-per-joint --procrustes similarity --resample-to mocap --out-json --metrabs --hnorm --subject-height-mm {SUBJECT_H}"
+        f"python src/validation/validate_rtmw3d_vs_mocap_gpjatk.py -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --root-center pelvis --summary-per-joint --procrustes-both --resample-to mocap --out-json --metrabs --hnorm --subject-height-mm {SUBJECT_H}"
     ]
 
     print("Pipeline starting...")

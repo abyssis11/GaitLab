@@ -42,15 +42,15 @@ def main():
     SUBJECT_H = 1680
     # Commands as provided (kept verbatim on purpose).
     steps = [
-        #f"python src/pose/metrabs_pose_estimation.py  -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --video-field video_sync --calib-pickle",
+        f"python src/pose/metrabs_pose_estimation.py  -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --video-field video_sync --calib-pickle",
 
-        #f"python src/validation/validate_rtmw3d_vs_mocap_gpjatk.py -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --root-center pelvis --summary-per-joint --procrustes similarity --resample-to mocap --out-json --metrabs-ocap --hnorm --subject-height-mm {SUBJECT_H}",
+        f"python src/validation/validate_rtmw3d_vs_mocap_gpjatk.py -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --root-center pelvis --summary-per-joint --procrustes-both --resample-to mocap --out-json --metrabs-ocap --hnorm --subject-height-mm {SUBJECT_H}",
 
-        f"python src/pose/metrabs_pose_estimation.py  -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --video-field video_sync --calib-pickle --for-opensim",
+        #f"python src/pose/metrabs_pose_estimation.py  -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --video-field video_sync --calib-pickle --for-opensim",
 
-        f"python src/marker_enhancer/marker_enhancer2.py     -m {MANIFEST}   -p {CONFIG}     --trial {TRIAL} --models-path     ./models/marker_enhancer/     --version 0.3     --metrabs --trc-type metrabs",
+        #f"python src/marker_enhancer/marker_enhancer2.py     -m {MANIFEST}   -p {CONFIG}     --trial {TRIAL} --models-path     ./models/marker_enhancer/     --version 0.3     --metrabs --trc-type metrabs",
 
-        f"python src/validation/validate_rtmw3d_vs_mocap_gpjatk.py  -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --root-center pelvis --summary-per-joint --procrustes similarity --resample-to mocap --out-json --enhanc --metrabs --subject-height-mm {SUBJECT_H}"
+        #f"python src/validation/validate_rtmw3d_vs_mocap_gpjatk.py  -m {MANIFEST} -p {CONFIG} --trial {TRIAL} --root-center pelvis --summary-per-joint --procrustes similarity --resample-to mocap --out-json --enhanc --metrabs --subject-height-mm {SUBJECT_H}"
 
     ]
 
