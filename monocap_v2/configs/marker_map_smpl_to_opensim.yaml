@@ -1,0 +1,50 @@
+default_marker_set: wham_smpl_debug_v1
+
+marker_sets:
+  wham_smpl_debug_v1:
+    description: Debug WHAM/SMPL vertex marker set for pipeline validation only.
+    debug: true
+    coordinate_space: wham_camera_local
+    markers:
+      - name: DBG_PELV
+        nearest_vertex_to_joint: pelv
+      - name: DBG_SP1
+        nearest_vertex_to_joint: spi1
+      - name: DBG_SP3
+        nearest_vertex_to_joint: spi3
+      - name: DBG_NECK
+        nearest_vertex_to_joint: neck
+      - name: DBG_HEAD
+        nearest_vertex_to_joint: head
+      - name: DBG_LHIP
+        nearest_vertex_to_joint: lhip
+      - name: DBG_RHIP
+        nearest_vertex_to_joint: rhip
+      - name: DBG_LKNE
+        nearest_vertex_to_joint: lkne
+      - name: DBG_RKNE
+        nearest_vertex_to_joint: rkne
+      - name: DBG_LANK
+        nearest_vertex_to_joint: lank
+      - name: DBG_RANK
+        nearest_vertex_to_joint: rank
+      - name: DBG_LHEE
+        nearest_vertex_to_joint: left_heel
+      - name: DBG_RHEE
+        nearest_vertex_to_joint: right_heel
+      - name: DBG_LTOE
+        nearest_vertex_to_joint: left_big_toe
+      - name: DBG_RTOE
+        nearest_vertex_to_joint: right_big_toe
+      - name: DBG_LSHO
+        nearest_vertex_to_joint: lsho
+      - name: DBG_RSHO
+        nearest_vertex_to_joint: rsho
+      - name: DBG_LELB
+        nearest_vertex_to_joint: lelb
+      - name: DBG_RELB
+        nearest_vertex_to_joint: relb
+      - name: DBG_LWRI
+        nearest_vertex_to_joint: lwri
+      - name: DBG_RWRI
+        nearest_vertex_to_joint: rwri

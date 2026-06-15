@@ -1,0 +1,220 @@
+pipeline:
+  default_video_field: video_sync
+  stop_on_stage_error: true
+
+camera:
+  mode: assumed_static
+  model: pinhole
+  focal_scale: 1.2
+  distortion:
+    enabled: false
+
+backends:
+  pose2d: none
+  pose3d: metrabs
+  contacts: heuristic
+
+metrabs:
+  model_type: metrabs_eff2l_y4
+  model_path: /home/denik/.keras/models/metrabs_eff2l_y4
+  skeleton: smpl_24
+  max_detections: 1
+  suppress_implausible_poses: false
+  max_frames: null
+  save_pose2d: true
+
+rtmw3d:
+  python: /home/denik/miniconda3/envs/gaitlab/bin/python
+  config_path: models/rtmw3d/rtmw3d-l_8xb64_cocktail14-384x288.py
+  checkpoint_path: models/rtmw3d/rtmw3d-l_8xb64_cocktail14-384x288-794dbc78_20240626.pth
+  metainfo_from_file: external/datasets_config/h3wb.py
+  video_field: video_sync
+  output_dir_name: rtmw3d_work
+  device: cuda:0
+  stride: 1
+  refine_pass: true
+  amp: false
+  max_frames: null
+  print_every: 50
+  export_trc: false
+  clear_cache_on_force: true
+
+representations:
+  internal_units: m
+  allow_joints_only: true
+  allow_smpl: true
+
+markers:
+  marker_set: null
+  time_window:
+    mode: sync_overlap_for_wham
+    min_frames: 2
+  placement_qc:
+    enabled: true
+    groups:
+      - lower_limb
+    max_joint_distance_m: 0.20
+    min_ankle_to_foot_marker_m: 0.03
+    max_ankle_to_foot_marker_m: 0.40
+    max_marker_jump_m: 0.20
+
+optimization:
+  joints_only:
+    enabled: true
+    max_nfev: 30
+    robust_loss: soft_l1
+    f_scale: 0.05
+    contact_threshold: 0.85
+    min_contact_segment_frames: 3
+    mocap_axis: "-y,x,z"
+    primary_improvement_epsilon_m: 0.0
+    weights:
+      fidelity: 30.0
+      bone: 80.0
+      reprojection: 10.0
+      smoothness: 1.0
+      contact_velocity: 1.0
+      contact_position: 2.0
+      flat_floor: 0.5
+
+opensim:
+  enabled: false
+  require_smpl_markers: true
+
+kinetics:
+  enabled: false
+
+qc:
+  min_valid_frames_ratio: 0.8
+  warn_assumed_camera: true
+
+mocap_validation:
+  enabled: true
+  mocap_axis: "-y,x,z"
+  min_overlap_frames: 5
+  warn_normal_rigid_gap_mm: 100.0
+  preview_fps: 30
+  mocap_only_native:
+    enabled: true
+    show_labels: true
+    representative_frame: mid
+  marker_comparison:
+    enabled: true
+    max_faces: 1800
+    warn_median_residual_mm: 250.0
+    representative_frame: mid
+
+level_a:
+  root_mode: hip_midpoint
+  wham_convention_profile: legacy_x_yup_z
+  wham_convention_profiles:
+    legacy_x_yup_z:
+      label: Legacy x,-y,z
+      pre_axis: "x,-y,z"
+      use_camera_rotation: false
+      use_camera_translation: false
+      post_axis: identity
+      left_right_swap: false
+      time_offset_s: 0.0
+      diagnostic_only: false
+    opencap_camera_yflip_to_lab:
+      label: OpenCap camera y-flip to lab
+      pre_axis: "x,-y,z"
+      use_camera_rotation: true
+      use_camera_translation: false
+      post_axis: identity
+      left_right_swap: false
+      time_offset_s: 0.0
+      diagnostic_only: false
+    opencap_camera_yflip_to_lab_lr:
+      label: OpenCap camera y-flip to lab + L/R
+      pre_axis: "x,-y,z"
+      use_camera_rotation: true
+      use_camera_translation: false
+      post_axis: identity
+      left_right_swap: true
+      time_offset_s: 0.0
+      diagnostic_only: true
+    opencap_camera_yflip_full_to_lab:
+      label: OpenCap camera full extrinsic to lab
+      pre_axis: "x,-y,z"
+      use_camera_rotation: true
+      use_camera_translation: true
+      post_axis: identity
+      left_right_swap: false
+      time_offset_s: 0.0
+      diagnostic_only: true
+    opencap_camera_yflip_full_to_lab_lr:
+      label: OpenCap camera full extrinsic to lab + L/R
+      pre_axis: "x,-y,z"
+      use_camera_rotation: true
+      use_camera_translation: true
+      post_axis: identity
+      left_right_swap: true
+      time_offset_s: 0.0
+      diagnostic_only: true
+    opencap_yaw180:
+      label: OpenCap camera y-flip to lab + Yaw 180
+      pre_axis: "x,-y,z"
+      use_camera_rotation: true
+      use_camera_translation: false
+      post_axis: "-x,y,-z"
+      left_right_swap: false
+      time_offset_s: 0.0
+      diagnostic_only: true
+    opencap_yaw180_lr:
+      label: OpenCap camera y-flip to lab + Yaw 180 + L/R
+      pre_axis: "x,-y,z"
+      use_camera_rotation: true
+      use_camera_translation: false
+      post_axis: "-x,y,-z"
+      left_right_swap: true
+      time_offset_s: 0.0
+      diagnostic_only: true
+    opencap_yaw180_lr_offset120ms:
+      label: OpenCap camera y-flip to lab + Yaw 180 + L/R + 120 ms
+      pre_axis: "x,-y,z"
+      use_camera_rotation: true
+      use_camera_translation: false
+      post_axis: "-x,y,-z"
+      left_right_swap: true
+      time_offset_s: 0.120
+      diagnostic_only: true
+    opencap_full_yaw180:
+      label: OpenCap full extrinsic to lab + Yaw 180
+      pre_axis: "x,-y,z"
+      use_camera_rotation: true
+      use_camera_translation: true
+      post_axis: "-x,y,-z"
+      left_right_swap: false
+      time_offset_s: 0.0
+      diagnostic_only: true
+    opencap_full_yaw180_lr:
+      label: OpenCap full extrinsic to lab + Yaw 180 + L/R
+      pre_axis: "x,-y,z"
+      use_camera_rotation: true
+      use_camera_translation: true
+      post_axis: "-x,y,-z"
+      left_right_swap: true
+      time_offset_s: 0.0
+      diagnostic_only: true
+    opencap_full_yaw180_lr_offset120ms:
+      label: OpenCap full extrinsic to lab + Yaw 180 + L/R + 120 ms
+      pre_axis: "x,-y,z"
+      use_camera_rotation: true
+      use_camera_translation: true
+      post_axis: "-x,y,-z"
+      left_right_swap: true
+      time_offset_s: 0.120
+      diagnostic_only: true
+
+visualization:
+  enabled: true
+  preview_fps: 30
+  preview_width: 960
+  preview_height: 720
+  smpl_mesh:
+    enabled: true
+    max_faces: 6000
+    show_markers: true
+    show_marker_labels: true

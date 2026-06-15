@@ -1,0 +1,36 @@
+walking:
+  filter_freq: 6
+  reprojection: 50
+  camera: 1
+  contact_velocity: 1
+  contact_position: 100
+  smoothness: 10
+  flat_floor: 100
+
+squat:
+  filter_freq: 4
+  reprojection: 50
+  camera: 1
+  contact_velocity: 1
+  contact_position: 100
+  smoothness: 10
+  flat_floor: 10
+
+sit_to_stand:
+  filter_freq: 4
+  reprojection: 250
+  camera: 1
+  contact_velocity: 1
+  contact_position: 100
+  smoothness: 10
+  flat_floor: 50
+
+other:
+  filter_freq: 8
+  reprojection: 50
+  camera: 1
+  contact_velocity: 1
+  contact_position: 100
+  smoothness: 10
+  flat_floor: 0
+

@@ -1,0 +1,38 @@
+pipeline:
+  default_video_field: video_sync
+
+backends:
+  pose2d: none
+  pose3d: wham
+  contacts: wham_or_heuristic
+
+wham:
+  repo_path: external/WHAM
+  entrypoint: wham_api.WHAM_API
+  use_official_pipeline: true
+  bundled_vitpose: true
+  bundled_dpvo: true
+  video_field: video_sync
+  local_only: true
+  estimate_local_only: true
+  run_smplify: false
+  checkpoint_dir: external/WHAM/checkpoints
+  output_units: m
+  output_dir_name: wham_work_sync
+  max_frames: null
+  start_frame: 0
+  visualize: false
+  clear_cache_on_force: true
+
+optimization:
+  joints_only:
+    enabled: false
+  smpl:
+    enabled: false
+    status: planned
+
+opensim:
+  enabled: false
+
+kinetics:
+  enabled: false

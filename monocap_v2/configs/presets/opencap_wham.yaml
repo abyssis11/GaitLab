@@ -1,0 +1,89 @@
+pipeline:
+  default_video_field: video_sync
+  stop_on_stage_error: true
+
+camera:
+  mode: manifest_or_assumed
+  model: pinhole
+  focal_scale: 1.2
+  distortion:
+    enabled: true
+
+backends:
+  pose2d: none
+  pose3d: wham
+  contacts: wham_or_heuristic
+
+wham:
+  repo_path: external/WHAM
+  entrypoint: wham_api.WHAM_API
+  use_official_pipeline: true
+  bundled_vitpose: true
+  bundled_dpvo: true
+  video_field: video_raw
+  local_only: true
+  estimate_local_only: true
+  run_smplify: false
+  checkpoint_dir: external/WHAM/checkpoints
+  output_units: m
+  output_dir_name: wham_work
+  max_frames: null
+  start_frame: 0
+  visualize: false
+  clear_cache_on_force: true
+
+smpl:
+  model_dir: models/smpl
+  model_type: smpl
+  gender: neutral
+  file_map:
+    male: basicmodel_m_lbs_10_207_0_v1.1.0.pkl
+    female: basicmodel_f_lbs_10_207_0_v1.1.0.pkl
+    neutral: basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl
+
+representations:
+  internal_units: m
+  allow_joints_only: true
+  allow_smpl: true
+
+markers:
+  time_window:
+    mode: sync_overlap_for_wham
+    min_frames: 2
+  placement_qc:
+    enabled: true
+    groups:
+      - lower_limb
+    max_joint_distance_m: 0.20
+    min_ankle_to_foot_marker_m: 0.03
+    max_ankle_to_foot_marker_m: 0.40
+    max_marker_jump_m: 0.20
+
+optimization:
+  joints_only:
+    enabled: false
+  smpl:
+    enabled: false
+    status: planned
+
+opensim:
+  enabled: false
+  require_smpl_markers: true
+
+kinetics:
+  enabled: false
+
+qc:
+  min_valid_frames_ratio: 0.8
+  warn_assumed_camera: true
+
+visualization:
+  enabled: true
+  preview_fps: 30
+  preview_width: 960
+  preview_height: 720
+  smpl_mesh:
+    enabled: true
+    max_faces: 6000
+    show_markers: true
+    show_marker_labels: true

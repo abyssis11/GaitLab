@@ -1,0 +1,31 @@
+pipeline:
+  default_video_field: video_sync
+  stop_on_stage_error: true
+
+backends:
+  pose2d: none
+  pose3d: rtmw3d
+  contacts: heuristic
+
+rtmw3d:
+  python: /home/denik/miniconda3/envs/gaitlab/bin/python
+  config_path: models/rtmw3d/rtmw3d-l_8xb64_cocktail14-384x288.py
+  checkpoint_path: models/rtmw3d/rtmw3d-l_8xb64_cocktail14-384x288-794dbc78_20240626.pth
+  metainfo_from_file: external/datasets_config/h3wb.py
+  video_field: video_sync
+  output_dir_name: rtmw3d_work
+  device: cuda:0
+  stride: 1
+  refine_pass: true
+  amp: false
+  max_frames: null
+  print_every: 50
+  export_trc: false
+  clear_cache_on_force: true
+
+optimization:
+  joints_only:
+    enabled: true
+
+opensim:
+  enabled: false

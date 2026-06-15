@@ -20,7 +20,14 @@ outputs/
 config/paths.yaml
 *.pth
 models/*.pth
+models/smpl/
+models/wham/
+models/vitpose/
 *.h5
+external/WHAM/
+external/ViTPose/
+external/DPVO/
+monocap_v2/runs/
 requirements2.in
 requirements3.in
 requirements4.txt
