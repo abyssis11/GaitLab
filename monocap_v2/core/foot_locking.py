@@ -38,9 +38,6 @@ def apply_contact_foot_locking_to_pose(
         "representation": representation,
         "mocap_used_in_objective": False,
     }
-    if representation != "joints":
-        report["reason"] = f"Contact foot locking only applies to joints artifacts, got {representation!r}."
-        return out_pose, report
     if not contacts:
         report["reason"] = "No contact probabilities are available."
         return out_pose, report
@@ -52,6 +49,15 @@ def apply_contact_foot_locking_to_pose(
         return out_pose, report
 
     mode = str(cfg.get("mode") or "root_translation")
+    if representation not in {"joints", "hybrid", "smpl"}:
+        report["reason"] = f"Contact foot locking only applies to joints/hybrid/SMPL artifacts, got {representation!r}."
+        return out_pose, report
+    if representation in {"hybrid", "smpl"} and mode != "root_translation":
+        report["reason"] = (
+            f"Contact foot locking mode {mode!r} is not SMPL-consistent for {representation} artifacts; "
+            "use root_translation."
+        )
+        return out_pose, report
     contact_threshold = float(cfg.get("contact_threshold", 0.85))
     min_segment_frames = int(cfg.get("min_segment_frames", 3))
     lock_vertical = bool(cfg.get("lock_vertical", False))
@@ -86,6 +92,7 @@ def apply_contact_foot_locking_to_pose(
     after_metrics = foot_locking_metrics(locked, names, contacts, fps, contact_threshold, min_segment_frames, foot_keys)
 
     out_pose["joints_3d"] = locked.astype(np.float32)
+    smpl_update = _apply_smpl_global_correction(out_pose, correction) if representation in {"hybrid", "smpl"} else None
     lock_report = {
         "status": "ok",
         "method": "contact_foot_locking",
@@ -101,12 +108,44 @@ def apply_contact_foot_locking_to_pose(
         "locked_segment_count": len(specs),
         "used_contact_keys": sorted({spec["contact_key"] for spec in specs}),
         "correction_summary": _correction_summary(correction),
+        "smpl_consistency": smpl_update,
         "metrics_before": before_metrics,
         "metrics_after": after_metrics,
         "mocap_used_in_objective": False,
     }
     out_pose["contact_foot_locking"] = lock_report
     return out_pose, lock_report
+
+
+def _apply_smpl_global_correction(pose: dict[str, Any], correction: np.ndarray) -> dict[str, Any]:
+    smpl = pose.get("smpl")
+    if not isinstance(smpl, dict):
+        return {"status": "skipped", "reason": "No SMPL payload is available.", "updated_fields": []}
+    delta = np.asarray(correction, dtype=float)
+    updated: list[str] = []
+    vertices = smpl.get("vertices")
+    if vertices is not None:
+        arr = np.asarray(vertices, dtype=float)
+        if arr.ndim == 3 and arr.shape[0] == delta.shape[0] and arr.shape[-1] == 3:
+            smpl["vertices"] = (arr + delta[:, None, :]).astype(np.float32)
+            updated.append("smpl.vertices")
+    transl = smpl.get("transl")
+    if transl is not None:
+        arr = np.asarray(transl, dtype=float)
+        if arr.ndim == 2 and arr.shape[0] == delta.shape[0] and arr.shape[-1] == 3:
+            smpl["transl"] = (arr + delta).astype(np.float32)
+            updated.append("smpl.transl")
+    if "transl" in pose:
+        arr = np.asarray(pose["transl"], dtype=float)
+        if arr.ndim == 2 and arr.shape[0] == delta.shape[0] and arr.shape[-1] == 3:
+            pose["transl"] = (arr + delta).astype(np.float32)
+            updated.append("transl")
+    return {
+        "status": "ok" if updated else "warning",
+        "mode": "global_translation",
+        "updated_fields": updated,
+        "reason": None if updated else "No SMPL vertices/transl fields matched the correction timeline.",
+    }
 
 
 def foot_locking_metrics(

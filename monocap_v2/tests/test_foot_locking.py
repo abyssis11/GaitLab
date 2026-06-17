@@ -69,7 +69,38 @@ def test_endpoint_foot_locking_moves_only_contact_endpoint() -> None:
     assert np.nanstd(corrected["joints_3d"][:, 1, 0]) < np.nanstd(joints[:, 1, 0])
 
 
-def test_contact_foot_locking_skips_hybrid_artifacts() -> None:
+def test_contact_foot_locking_root_translation_updates_hybrid_smpl_consistently() -> None:
+    frames = 6
+    joints = np.zeros((frames, 2, 3), dtype=np.float32)
+    joints[:, 1, 0] = np.linspace(0.0, 0.2, frames)
+    vertices = np.zeros((frames, 3, 3), dtype=np.float32)
+    vertices[:, :, 0] = joints[:, :1, 0] + np.array([0.0, 0.1, 0.2], dtype=np.float32)
+    transl = np.zeros((frames, 3), dtype=np.float32)
+    pose = {
+        "representation": "hybrid",
+        "backend": "wham",
+        "joint_names": ["pelv", "ltoe"],
+        "joints_3d": joints,
+        "smpl": {"vertices": vertices.copy(), "transl": transl.copy()},
+    }
+    contacts = {"left_toe": np.ones(frames, dtype=np.float32)}
+
+    corrected, report = apply_contact_foot_locking_to_pose(
+        pose,
+        contacts,
+        {"mode": "root_translation", "feet": "toes", "contact_threshold": 0.5, "smooth_correction_window_frames": 1},
+    )
+
+    assert report["status"] == "ok"
+    assert report["smpl_consistency"]["status"] == "ok"
+    assert "smpl.vertices" in report["smpl_consistency"]["updated_fields"]
+    assert "smpl.transl" in report["smpl_consistency"]["updated_fields"]
+    correction = corrected["joints_3d"][:, 0, :] - joints[:, 0, :]
+    np.testing.assert_allclose(corrected["smpl"]["transl"], transl + correction, atol=1e-6)
+    np.testing.assert_allclose(corrected["smpl"]["vertices"], vertices + correction[:, None, :], atol=1e-6)
+
+
+def test_contact_foot_locking_endpoint_skips_hybrid_artifacts() -> None:
     pose = {
         "representation": "hybrid",
         "backend": "wham",
@@ -77,8 +108,8 @@ def test_contact_foot_locking_skips_hybrid_artifacts() -> None:
         "joints_3d": np.zeros((3, 2, 3), dtype=np.float32),
     }
 
-    corrected, report = apply_contact_foot_locking_to_pose(pose, {"left_toe": np.ones(3)})
+    corrected, report = apply_contact_foot_locking_to_pose(pose, {"left_toe": np.ones(3)}, {"mode": "endpoint"})
 
     assert report["status"] == "skipped"
-    assert "hybrid" in report["reason"]
+    assert "SMPL-consistent" in report["reason"]
     np.testing.assert_allclose(corrected["joints_3d"], pose["joints_3d"])

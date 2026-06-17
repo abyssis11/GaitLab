@@ -117,6 +117,73 @@ def test_stage_07_skips_hybrid_smpl_by_default(tmp_path: Path) -> None:
     assert refined["refinement"]["status"] == "passthrough"
 
 
+def test_stage_07_wham_global_contact_profile_preserves_hybrid_smpl(tmp_path: Path) -> None:
+    registry = ArtifactRegistry(tmp_path)
+    registry.ensure_standard_dirs()
+    frames = 6
+    names = ["pelv", "left_big_toe"]
+    joints = np.zeros((frames, len(names), 3), dtype=np.float32)
+    joints[:, names.index("left_big_toe"), 0] = np.linspace(0.0, 0.2, frames)
+    vertices = np.zeros((frames, 4, 3), dtype=np.float32)
+    transl = np.zeros((frames, 3), dtype=np.float32)
+    pose = {
+        "representation": "hybrid",
+        "backend": "wham",
+        "fps": 30.0,
+        "units": "m",
+        "joint_names": names,
+        "joints_3d": joints,
+        "smpl": {"vertices": vertices.copy(), "transl": transl.copy()},
+    }
+    with registry.ensure_parent("pose3d_initial").open("wb") as f:
+        pickle.dump(pose, f)
+    np.savez_compressed(
+        registry.ensure_parent("contacts"),
+        left_heel=np.zeros(frames, dtype=np.float32),
+        left_toe=np.ones(frames, dtype=np.float32),
+        right_heel=np.zeros(frames, dtype=np.float32),
+        right_toe=np.zeros(frames, dtype=np.float32),
+        backend="test",
+        activity="walking",
+    )
+    cfg = {
+        "config": {
+            "optimization": {
+                "refinement_profile": "wham_global_contact_v1",
+                "refinement_profiles": {
+                    "wham_global_contact_v1": {
+                        "version": 1,
+                        "representation": "hybrid",
+                        "stage_order": ["contact_foot_locking"],
+                        "mocap_used_in_objective": False,
+                        "optimization": {
+                            "contact_foot_locking": {
+                                "enabled": True,
+                                "mode": "root_translation",
+                                "feet": "toes",
+                                "contact_threshold": 0.5,
+                                "smooth_correction_window_frames": 1,
+                            },
+                            "joints_only": {"enabled": False},
+                        },
+                    }
+                },
+            }
+        }
+    }
+
+    result = stage_07_optimize_pose.run(tmp_path, cfg, force=True)
+
+    assert result["status"] == "ok"
+    assert result["refinement_profile"]["name"] == "wham_global_contact_v1"
+    assert result["contact_foot_locking"]["smpl_consistency"]["status"] == "ok"
+    with registry.get("pose3d_refined").open("rb") as f:
+        refined = pickle.load(f)
+    correction = refined["joints_3d"][:, 0, :] - joints[:, 0, :]
+    np.testing.assert_allclose(refined["smpl"]["vertices"], vertices + correction[:, None, :], atol=1e-6)
+    np.testing.assert_allclose(refined["smpl"]["transl"], transl + correction, atol=1e-6)
+
+
 def test_stage_07_subject_scale_only_when_optimizer_disabled(tmp_path: Path) -> None:
     registry = ArtifactRegistry(tmp_path)
     registry.ensure_standard_dirs()

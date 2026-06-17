@@ -111,6 +111,32 @@ optimization:
           smooth_correction_window_frames: 3
         joints_only:
           enabled: false
+    wham_global_contact_v1:
+      label: WHAM SMPL-consistent global contact locking v1
+      version: 1
+      description: >
+        WHAM/SMPL-safe refinement profile. Applies contact-aware per-frame
+        global/root translation only, updating joints, SMPL vertices, and SMPL
+        translation together so the hybrid artifact remains internally
+        consistent. It does not change SMPL pose, shape, or local joint
+        geometry, and it does not use mocap/OpenSim/Level A ground truth.
+      representation: hybrid
+      mocap_used_in_objective: false
+      stage_order:
+        - contact_foot_locking
+      optimization:
+        contact_foot_locking:
+          enabled: true
+          mode: root_translation
+          feet: toes_and_heels
+          contact_threshold: 0.65
+          min_segment_frames: 3
+          lock_vertical: false
+          blend: 1.0
+          max_correction_m: 0.20
+          smooth_correction_window_frames: 3
+        joints_only:
+          enabled: false
   camera_time_refinement:
     enabled: false
     confidence_threshold: 0.25
