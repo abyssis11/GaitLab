@@ -44,6 +44,138 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
             f.write(f"- SMPL available: `{pose3d.get('has_smpl')}`\n")
             if pose3d.get("source_video"):
                 f.write(f"- Pose3D source video: `{pose3d.get('source_video')}`\n")
+        optimization = report["artifacts"].get("optimization_stage2") or {}
+        refinement_profile = optimization.get("refinement_profile") or {}
+        if refinement_profile:
+            f.write("\n## Refinement Profile\n\n")
+            f.write(f"- Status: `{refinement_profile.get('status')}`\n")
+            f.write(f"- Name: `{refinement_profile.get('name')}`\n")
+            if refinement_profile.get("version") is not None:
+                f.write(f"- Version: `{refinement_profile.get('version')}`\n")
+            if refinement_profile.get("label"):
+                f.write(f"- Label: `{refinement_profile.get('label')}`\n")
+            if refinement_profile.get("stage_order"):
+                f.write(f"- Stage order: `{', '.join(str(item) for item in refinement_profile.get('stage_order'))}`\n")
+            f.write(f"- Mocap used in objective: `{refinement_profile.get('mocap_used_in_objective')}`\n")
+        camera_time_refinement = optimization.get("camera_time_refinement") or {}
+        if camera_time_refinement:
+            f.write("\n## Camera/Time Refinement\n\n")
+            f.write(f"- Status: `{camera_time_refinement.get('status')}`\n")
+            f.write(f"- Method: `{camera_time_refinement.get('method')}`\n")
+            f.write(f"- Selected offset: `{camera_time_refinement.get('selected_time_offset_ms')}` ms\n")
+            f.write(f"- Time offset applied to sequence: `{camera_time_refinement.get('time_offset_applied_to_sequence')}`\n")
+            before = camera_time_refinement.get("metrics_before") or {}
+            after = camera_time_refinement.get("metrics_after") or {}
+            f.write(
+                f"- Mean reprojection error before/after: `{before.get('mean_reprojection_error_px')}` / "
+                f"`{after.get('mean_reprojection_error_px')}` px\n"
+            )
+            camera_delta = camera_time_refinement.get("camera_delta") or {}
+            f.write(f"- Camera delta status: `{camera_delta.get('status')}`\n")
+            if camera_delta.get("rotation_magnitude_deg") is not None:
+                f.write(f"- Camera delta rotation: `{camera_delta.get('rotation_magnitude_deg')}` deg\n")
+            if camera_delta.get("translation_magnitude_m") is not None:
+                f.write(f"- Camera delta translation: `{camera_delta.get('translation_magnitude_m')}` m\n")
+            if camera_time_refinement.get("reason"):
+                f.write(f"- Reason: {camera_time_refinement.get('reason')}\n")
+            for warning in camera_time_refinement.get("warnings") or []:
+                f.write(f"- Warning: {warning}\n")
+        subject_scale = optimization.get("subject_scale") or {}
+        if subject_scale:
+            f.write("\n## Subject Scale\n\n")
+            f.write(f"- Status: `{subject_scale.get('status')}`\n")
+            f.write(f"- Mode: `{subject_scale.get('mode')}`\n")
+            f.write(f"- Target source: `{subject_scale.get('target_source')}`\n")
+            f.write(f"- Subject height: `{subject_scale.get('subject_height_m')}` m\n")
+            global_scale = subject_scale.get("global_scale") or {}
+            if global_scale.get("scale") is not None:
+                f.write(f"- Global scale: `{global_scale.get('scale')}`\n")
+            if subject_scale.get("reason"):
+                f.write(f"- Reason: {subject_scale.get('reason')}\n")
+            after_errors = subject_scale.get("segment_length_errors_after_mm") or {}
+            if after_errors:
+                compact = ", ".join(f"{name}={_fmt_mm(value)}" for name, value in after_errors.items() if value is not None)
+                if compact:
+                    f.write(f"- Segment length residuals after correction: `{compact}`\n")
+        temporal_smoothing = optimization.get("temporal_smoothing") or {}
+        if temporal_smoothing:
+            f.write("\n## Temporal Smoothing\n\n")
+            f.write(f"- Status: `{temporal_smoothing.get('status')}`\n")
+            f.write(f"- Method: `{temporal_smoothing.get('method')}`\n")
+            f.write(f"- Window frames: `{temporal_smoothing.get('window_frames')}`\n")
+            f.write(f"- Preserve bones: `{temporal_smoothing.get('preserve_bones')}`\n")
+            before = temporal_smoothing.get("metrics_before") or {}
+            after = temporal_smoothing.get("metrics_after") or {}
+            f.write(
+                f"- Mean second-difference before/after: `{before.get('mean_second_diff_m')}` / "
+                f"`{after.get('mean_second_diff_m')}` m\n"
+            )
+            f.write(f"- Median bone-length error after: `{after.get('median_bone_length_error_mm')}` mm\n")
+        reprojection_consistency = optimization.get("reprojection_consistency") or {}
+        if reprojection_consistency:
+            f.write("\n## Reprojection Consistency\n\n")
+            f.write(f"- Status: `{reprojection_consistency.get('status')}`\n")
+            f.write(f"- Method: `{reprojection_consistency.get('method')}`\n")
+            f.write(f"- Blend: `{reprojection_consistency.get('blend')}`\n")
+            f.write(f"- Preserve bones: `{reprojection_consistency.get('preserve_bones')}`\n")
+            before = reprojection_consistency.get("metrics_before") or {}
+            after = reprojection_consistency.get("metrics_after") or {}
+            f.write(
+                f"- Mean reprojection error before/after: `{before.get('mean_reprojection_error_px')}` / "
+                f"`{after.get('mean_reprojection_error_px')}` px\n"
+            )
+            f.write(
+                f"- Valid observations: `{reprojection_consistency.get('valid_observations')}` "
+                f"({reprojection_consistency.get('valid_observation_ratio')})\n"
+            )
+            if reprojection_consistency.get("reason"):
+                f.write(f"- Reason: {reprojection_consistency.get('reason')}\n")
+        pose_prior = optimization.get("pose_prior") or {}
+        if pose_prior:
+            f.write("\n## Pose Prior\n\n")
+            f.write(f"- Status: `{pose_prior.get('status')}`\n")
+            f.write(f"- Method: `{pose_prior.get('method')}`\n")
+            f.write(f"- Limit set: `{pose_prior.get('limit_set')}`\n")
+            f.write(f"- Total corrections: `{pose_prior.get('total_corrections')}`\n")
+            after = pose_prior.get("metrics_after") or {}
+            f.write(f"- Max joint displacement: `{after.get('max_joint_displacement_m')}` m\n")
+            for warning in pose_prior.get("warnings") or []:
+                f.write(f"- Warning: {warning}\n")
+            if pose_prior.get("reason"):
+                f.write(f"- Reason: {pose_prior.get('reason')}\n")
+        kinematic_chain = optimization.get("kinematic_chain") or {}
+        if kinematic_chain:
+            f.write("\n## Kinematic Chain\n\n")
+            f.write(f"- Status: `{kinematic_chain.get('status')}`\n")
+            f.write(f"- Method: `{kinematic_chain.get('method')}`\n")
+            f.write(f"- Smoothing method: `{kinematic_chain.get('smoothing_method')}`\n")
+            f.write(f"- Direction window frames: `{kinematic_chain.get('direction_window_frames')}`\n")
+            f.write(f"- Root window frames: `{kinematic_chain.get('root_window_frames')}`\n")
+            f.write(f"- Edge count: `{kinematic_chain.get('edge_count')}`\n")
+            before = kinematic_chain.get("metrics_before") or {}
+            after = kinematic_chain.get("metrics_after") or {}
+            f.write(
+                f"- Mean second-difference before/after: `{before.get('mean_second_diff_m')}` / "
+                f"`{after.get('mean_second_diff_m')}` m\n"
+            )
+            f.write(f"- Median bone-length error after: `{after.get('median_bone_length_error_mm')}` mm\n")
+        contact_foot_locking = optimization.get("contact_foot_locking") or {}
+        if contact_foot_locking:
+            f.write("\n## Contact Foot Locking\n\n")
+            f.write(f"- Status: `{contact_foot_locking.get('status')}`\n")
+            f.write(f"- Mode: `{contact_foot_locking.get('mode')}`\n")
+            f.write(f"- Feet: `{contact_foot_locking.get('feet')}`\n")
+            f.write(f"- Locked segments: `{contact_foot_locking.get('locked_segment_count')}`\n")
+            before = contact_foot_locking.get("metrics_before") or {}
+            after = contact_foot_locking.get("metrics_after") or {}
+            f.write(
+                f"- Contact horizontal speed before/after: `{before.get('mean_contact_horizontal_speed_mps')}` / "
+                f"`{after.get('mean_contact_horizontal_speed_mps')}` m/s\n"
+            )
+            correction = contact_foot_locking.get("correction_summary") or {}
+            f.write(f"- Max correction: `{correction.get('max_m')}` m\n")
+            if contact_foot_locking.get("reason"):
+                f.write(f"- Reason: {contact_foot_locking.get('reason')}\n")
         smpl_vis = report["artifacts"].get("smpl_visualization") or {}
         if smpl_vis:
             f.write(f"- SMPL preview: `{smpl_vis.get('status')}` ({smpl_vis.get('frames_rendered')}/{smpl_vis.get('frames_available')} frames)\n")

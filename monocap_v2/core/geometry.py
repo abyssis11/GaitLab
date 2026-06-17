@@ -97,6 +97,26 @@ def joint_aliases(joint_names: Iterable[str]) -> dict[str, int]:
             aliases["l" + norm[4:]] = idx
         if norm.startswith("right"):
             aliases["r" + norm[5:]] = idx
+        short_aliases = {
+            "lefthip": "lhip",
+            "righthip": "rhip",
+            "leftknee": "lkne",
+            "rightknee": "rkne",
+            "leftankle": "lank",
+            "rightankle": "rank",
+            "lefttoe": "ltoe",
+            "righttoe": "rtoe",
+            "leftbigtoe": "ltoe",
+            "rightbigtoe": "rtoe",
+            "leftshoulder": "lsho",
+            "rightshoulder": "rsho",
+            "leftelbow": "lelb",
+            "rightelbow": "relb",
+            "leftwrist": "lwri",
+            "rightwrist": "rwri",
+        }
+        if norm in short_aliases:
+            aliases[short_aliases[norm]] = idx
         if norm in {"leftbigtoe", "lefttoe"}:
             aliases["ltoe"] = idx
         if norm in {"rightbigtoe", "righttoe"}:

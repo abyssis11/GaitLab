@@ -154,6 +154,69 @@ def test_backend_convention_audit_writes_outputs_with_fake_cache(tmp_path: Path,
     assert summary["best_pa_case_count"] == 2
 
 
+def test_backend_convention_audit_can_compare_initial_and_refined_sources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    benchmark_dir = tmp_path / "bench"
+    benchmark_dir.mkdir()
+    run_dir = tmp_path / "run__metrabs"
+    payload = {
+        "rows": [
+            {"backend": "metrabs_initial", "trial": "walking1", "status": "valid", "run_dir": str(run_dir)},
+            {"backend": "metrabs_refined", "trial": "walking1", "status": "valid", "run_dir": str(run_dir)},
+        ]
+    }
+    (benchmark_dir / "level_a_summary.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    pose = {
+        "backend": "metrabs",
+        "joint_names": ["pelvis", "left_hip", "right_hip", "left_knee", "right_knee", "left_ankle", "right_ankle"],
+        "joints_3d": np.zeros((10, 7, 3), dtype=float),
+        "fps": 60.0,
+    }
+    reference = {
+        "time_s": np.arange(10) / 60.0,
+        "joint_names": ["pelvis", "left_hip", "right_hip", "left_knee", "right_knee", "left_ankle", "right_ankle"],
+        "joints_m": np.zeros((10, 7, 3), dtype=float),
+    }
+
+    monkeypatch.setattr(audit, "_load_pose_for_source", lambda _path, source: {**pose, "metadata": {"pose_source": source}})
+    monkeypatch.setattr(audit, "load_run_config", lambda _path: {})
+    monkeypatch.setattr(audit, "load_cached_wham_timeline", lambda _path: None)
+    monkeypatch.setattr(audit, "load_opensim_reference", lambda *_args, **_kwargs: reference)
+    monkeypatch.setattr(
+        audit,
+        "compare_pose_to_opensim_reference",
+        lambda *_args, **_kwargs: (
+            {
+                "status": "ok",
+                "root_centered_rigid_mpjpe_mm": 0.0,
+                "pa_mpjpe_mm": 0.0,
+            },
+            {},
+        ),
+    )
+
+    report = audit.run_backend_convention_audit(
+        benchmark_dirs={"Cam0": benchmark_dir},
+        trials=["walking1"],
+        backends=["metrabs"],
+        evaluation_hz_values=[60.0],
+        out_dir=tmp_path / "audit",
+        time_offset_min=0.0,
+        time_offset_max=0.0,
+        time_offset_step=0.02,
+        axis_candidates=["x,-y,z"],
+        reference_lr_values=(False,),
+        model_lr_values=(False,),
+        pose_sources=("initial", "refined"),
+    )
+
+    rows = list(csv.DictReader((tmp_path / "audit" / "convention_audit_rows.csv").open()))
+    assert report["valid_candidate_count"] == 2
+    assert {row["pose_source"] for row in rows} == {"initial", "refined"}
+    top_rows = list(csv.DictReader((tmp_path / "audit" / "top_by_case.csv").open()))
+    assert {row["pose_source"] for row in top_rows} == {"initial", "refined"}
+
+
 def test_wham_timeline_is_built_once_for_candidate_sweep(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     benchmark_dir = tmp_path / "bench"
     benchmark_dir.mkdir()

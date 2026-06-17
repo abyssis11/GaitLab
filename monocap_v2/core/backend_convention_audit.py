@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import pickle
 import statistics
 from itertools import permutations, product
 from pathlib import Path
@@ -54,6 +55,7 @@ AUDIT_ROW_FIELDS = [
     "camera",
     "trial",
     "backend",
+    "pose_source",
     "evaluation_hz",
     "status",
     "run_dir",
@@ -82,6 +84,7 @@ TOP_ROW_FIELDS = [
     "camera",
     "trial",
     "backend",
+    "pose_source",
     "evaluation_hz",
     "ranking",
     "metric_value_mm",
@@ -114,6 +117,7 @@ def run_backend_convention_audit(
     axis_candidates: list[str] | None = None,
     reference_lr_values: tuple[bool, ...] = (False, True),
     model_lr_values: tuple[bool, ...] = (False, True),
+    pose_sources: tuple[str, ...] = ("initial",),
 ) -> dict[str, Any]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -133,6 +137,7 @@ def run_backend_convention_audit(
                 offsets=offsets,
                 reference_lr_values=reference_lr_values,
                 model_lr_values=model_lr_values,
+                pose_sources=pose_sources,
             )
         )
 
@@ -224,7 +229,7 @@ def top_rows_by_case(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     valid = [row for row in rows if row.get("status") == "valid"]
     grouped: dict[tuple[str, str, str, float], list[dict[str, Any]]] = {}
     for row in valid:
-        key = (str(row["camera"]), str(row["trial"]), str(row["backend"]), float(row["evaluation_hz"]))
+        key = (str(row["camera"]), str(row["trial"]), str(row["backend"]), str(row.get("pose_source") or "initial"), float(row["evaluation_hz"]))
         grouped.setdefault(key, []).append(row)
 
     out: list[dict[str, Any]] = []
@@ -278,6 +283,7 @@ def _evaluate_benchmark_dir(
     offsets: list[float],
     reference_lr_values: tuple[bool, ...],
     model_lr_values: tuple[bool, ...],
+    pose_sources: tuple[str, ...],
 ) -> list[dict[str, Any]]:
     summary_path = benchmark_dir / "level_a_summary.json"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
@@ -289,49 +295,82 @@ def _evaluate_benchmark_dir(
             benchmark_dir / "reference" / f"opensim_fk_{trial}.json",
         )
         for backend in backends:
-            source = summary_rows.get((backend, trial))
-            if not source or source.get("status") != "valid":
-                rows.append(_failed_row(camera, trial, backend, None, None, "missing_valid_row", "No valid Level A source row."))
-                continue
-            run_dir = Path(str(source["run_dir"]))
-            try:
-                pose = load_pose_artifact(run_dir)
-                run_config = load_run_config(run_dir)
-                timeline = _load_or_build_wham_timeline(run_dir, pose, run_config)
-            except Exception as exc:
-                rows.append(_failed_row(camera, trial, backend, None, None, "artifact_failed", str(exc), run_dir=run_dir))
-                continue
-            pose_by_lr = {False: pose, True: relabel_pose_left_right(pose)}
-            representative_axis_by_det = _representative_axes_by_determinant(axes)
-            alignment_cache: dict[tuple[float, bool, bool, float, float], dict[str, float | None]] = {}
-            for hz in evaluation_hz_values:
-                for axis in axes:
-                    axis_meta = _axis_meta(axis, backend)
-                    for reference_lr in reference_lr_values:
-                        for model_lr in model_lr_values:
-                            candidate_pose = pose_by_lr[model_lr]
-                            for offset in offsets:
-                                rows.append(
-                                    _score_candidate(
-                                        camera,
-                                        trial,
-                                        backend,
-                                        run_dir,
-                                        candidate_pose,
-                                        reference,
-                                        run_config,
-                                        timeline,
-                                        float(hz),
-                                        axis,
-                                        axis_meta,
-                                        bool(reference_lr),
-                                        bool(model_lr),
-                                        float(offset),
-                                        alignment_cache,
-                                        representative_axis_by_det,
+            for pose_source in pose_sources:
+                source = _summary_source_row(summary_rows, backend, trial, pose_source)
+                if not source or source.get("status") != "valid":
+                    rows.append(
+                        _failed_row(
+                            camera,
+                            trial,
+                            backend,
+                            pose_source,
+                            None,
+                            None,
+                            "missing_valid_row",
+                            "No valid Level A source row.",
+                        )
+                    )
+                    continue
+                run_dir = Path(str(source["run_dir"]))
+                try:
+                    pose = _load_pose_for_source(run_dir, pose_source)
+                    run_config = load_run_config(run_dir)
+                    timeline = _load_or_build_wham_timeline(run_dir, pose, run_config)
+                except Exception as exc:
+                    rows.append(_failed_row(camera, trial, backend, pose_source, None, None, "artifact_failed", str(exc), run_dir=run_dir))
+                    continue
+                pose_by_lr = {False: pose, True: relabel_pose_left_right(pose)}
+                representative_axis_by_det = _representative_axes_by_determinant(axes)
+                alignment_cache: dict[tuple[float, bool, bool, float, float], dict[str, float | None]] = {}
+                for hz in evaluation_hz_values:
+                    for axis in axes:
+                        axis_meta = _axis_meta(axis, backend)
+                        for reference_lr in reference_lr_values:
+                            for model_lr in model_lr_values:
+                                candidate_pose = pose_by_lr[model_lr]
+                                for offset in offsets:
+                                    rows.append(
+                                        _score_candidate(
+                                            camera,
+                                            trial,
+                                            backend,
+                                            pose_source,
+                                            run_dir,
+                                            candidate_pose,
+                                            reference,
+                                            run_config,
+                                            timeline,
+                                            float(hz),
+                                            axis,
+                                            axis_meta,
+                                            bool(reference_lr),
+                                            bool(model_lr),
+                                            float(offset),
+                                            alignment_cache,
+                                            representative_axis_by_det,
+                                        )
                                     )
-                                )
     return rows
+
+
+def _summary_source_row(summary_rows: dict[tuple[Any, Any], dict[str, Any]], backend: str, trial: str, pose_source: str) -> dict[str, Any] | None:
+    if pose_source == "initial":
+        row = summary_rows.get((backend, trial))
+        if row is not None:
+            return row
+    return summary_rows.get((f"{backend}_{pose_source}", trial)) or summary_rows.get((backend, trial))
+
+
+def _load_pose_for_source(run_dir: Path, pose_source: str) -> dict[str, Any]:
+    if pose_source == "initial":
+        return load_pose_artifact(run_dir)
+    if pose_source != "refined":
+        raise ValueError(f"Unsupported pose source: {pose_source!r}")
+    path = run_dir / "optimization" / "pose3d_refined.pkl"
+    if not path.exists():
+        raise FileNotFoundError(f"Missing pose3d refined artifact: {path}")
+    with path.open("rb") as f:
+        return pickle.load(f)
 
 
 def _load_or_build_wham_timeline(run_dir: Path, pose: dict[str, Any], run_config: dict[str, Any]) -> dict[str, Any] | None:
@@ -351,6 +390,7 @@ def _score_candidate(
     camera: str,
     trial: str,
     backend: str,
+    pose_source: str,
     run_dir: Path,
     pose: dict[str, Any],
     reference: dict[str, Any],
@@ -370,6 +410,7 @@ def _score_candidate(
         "camera": camera,
         "trial": trial,
         "backend": backend,
+        "pose_source": pose_source,
         "evaluation_hz": float(evaluation_hz),
         "run_dir": str(run_dir),
         "axis": axis,
@@ -579,6 +620,7 @@ def _failed_row(
     camera: str,
     trial: str,
     backend: str,
+    pose_source: str,
     evaluation_hz: float | None,
     axis: str | None,
     status: str,
@@ -589,6 +631,7 @@ def _failed_row(
         "camera": camera,
         "trial": trial,
         "backend": backend,
+        "pose_source": pose_source,
         "evaluation_hz": evaluation_hz,
         "status": status,
         "run_dir": str(run_dir) if run_dir else "",
@@ -613,13 +656,14 @@ def _top_row(row: dict[str, Any], ranking: str, metric_key: str) -> dict[str, An
 
 def _axis_stability(best_pa_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
-    for backend in sorted({str(row["backend"]) for row in best_pa_rows}):
-        selected = [row for row in best_pa_rows if row.get("backend") == backend]
+    for backend, pose_source in sorted({(str(row["backend"]), str(row.get("pose_source") or "initial")) for row in best_pa_rows}):
+        selected = [row for row in best_pa_rows if row.get("backend") == backend and str(row.get("pose_source") or "initial") == pose_source]
         axes = [str(row.get("axis")) for row in selected]
         axis, count = _mode_count(axes)
         out.append(
             {
                 "backend": backend,
+                "pose_source": pose_source,
                 "case_count": len(selected),
                 "most_common_axis": axis,
                 "most_common_count": count,
@@ -632,15 +676,20 @@ def _axis_stability(best_pa_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _timing_stability(best_pa_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
-    keys = sorted({(str(row["camera"]), str(row["backend"])) for row in best_pa_rows})
-    for camera, backend in keys:
-        selected = [row for row in best_pa_rows if row.get("camera") == camera and row.get("backend") == backend]
+    keys = sorted({(str(row["camera"]), str(row["backend"]), str(row.get("pose_source") or "initial")) for row in best_pa_rows})
+    for camera, backend, pose_source in keys:
+        selected = [
+            row
+            for row in best_pa_rows
+            if row.get("camera") == camera and row.get("backend") == backend and str(row.get("pose_source") or "initial") == pose_source
+        ]
         offsets = [f"{float(row.get('time_offset_s') or 0.0):+.3f}" for row in selected]
         offset, count = _mode_count(offsets)
         out.append(
             {
                 "camera": camera,
                 "backend": backend,
+                "pose_source": pose_source,
                 "case_count": len(selected),
                 "most_common_time_offset_s": offset,
                 "most_common_count": count,
@@ -701,13 +750,33 @@ def _write_stability_md(path: Path, stability: dict[str, Any]) -> None:
         "",
     ]
     lines.extend(f"- {note}" for note in stability.get("interpretation") or [])
-    lines.extend(["", "## Axis Stability By Backend", "", "| Backend | Stable | Most Common Axis | Count | Cases |", "|---|---:|---|---:|---:|"])
+    lines.extend(
+        [
+            "",
+            "## Axis Stability By Backend",
+            "",
+            "| Backend | Pose Source | Stable | Most Common Axis | Count | Cases |",
+            "|---|---|---:|---|---:|---:|",
+        ]
+    )
     for row in stability.get("axis_stability_by_backend") or []:
-        lines.append(f"| {row['backend']} | {row['stable']} | `{row['most_common_axis']}` | {row['most_common_count']} | {row['case_count']} |")
-    lines.extend(["", "## Timing Stability By Camera/Backend", "", "| Camera | Backend | Stable | Most Common Offset | Count | Cases |", "|---|---|---:|---:|---:|---:|"])
+        lines.append(
+            f"| {row['backend']} | {row.get('pose_source', 'initial')} | {row['stable']} | `{row['most_common_axis']}` | "
+            f"{row['most_common_count']} | {row['case_count']} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Timing Stability By Camera/Backend",
+            "",
+            "| Camera | Backend | Pose Source | Stable | Most Common Offset | Count | Cases |",
+            "|---|---|---|---:|---:|---:|---:|",
+        ]
+    )
     for row in stability.get("timing_stability_by_camera_backend") or []:
         lines.append(
-            f"| {row['camera']} | {row['backend']} | {row['stable']} | {row['most_common_time_offset_s']} | {row['most_common_count']} | {row['case_count']} |"
+            f"| {row['camera']} | {row['backend']} | {row.get('pose_source', 'initial')} | {row['stable']} | "
+            f"{row['most_common_time_offset_s']} | {row['most_common_count']} | {row['case_count']} |"
         )
     lines.extend(["", "## Trial Outliers", "", "| Trial | Median Best PA | Delta From Global Median |", "|---|---:|---:|"])
     for row in stability.get("trial_outliers") or []:
@@ -728,13 +797,13 @@ def _write_walking_trial_tables(path: Path, top_rows: list[dict[str, Any]]) -> N
                 "",
                 f"## {trial}",
                 "",
-                "| Camera | Hz | Backend | Raw/root | Rigid | PA | Axis | Offset | Ref L/R | Model L/R |",
-                "|---|---:|---|---:|---:|---:|---|---:|---:|---:|",
+                "| Camera | Hz | Backend | Pose Source | Raw/root | Rigid | PA | Axis | Offset | Ref L/R | Model L/R |",
+                "|---|---:|---|---|---:|---:|---:|---|---:|---:|---:|",
             ]
         )
         for row in [item for item in rows if item.get("trial") == trial]:
             lines.append(
-                f"| {row['camera']} | {_fmt(row['evaluation_hz'])} | {row['backend']} | "
+                f"| {row['camera']} | {_fmt(row['evaluation_hz'])} | {row['backend']} | {row.get('pose_source', 'initial')} | "
                 f"{_fmt(row.get('raw_primary_mm'))} | {_fmt(row.get('rigid_mm'))} | {_fmt(row.get('pa_mm'))} | "
                 f"`{row.get('axis')}` | {_fmt(row.get('time_offset_s'))} | {row.get('reference_left_right_swap')} | {row.get('model_left_right_swap')} |"
             )

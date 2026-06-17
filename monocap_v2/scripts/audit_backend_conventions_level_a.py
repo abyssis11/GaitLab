@@ -31,6 +31,12 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--time-offset-max", type=float, default=0.30)
     ap.add_argument("--time-offset-step", type=float, default=0.02)
     ap.add_argument(
+        "--pose-source",
+        choices=["initial", "refined", "both"],
+        default="initial",
+        help="Pose artifact to evaluate from each run. 'both' compares initial and refined artifacts side-by-side.",
+    )
+    ap.add_argument(
         "--axis-set",
         choices=["physical", "full"],
         default="full",
@@ -53,6 +59,7 @@ def main() -> int:
         time_offset_max=args.time_offset_max,
         time_offset_step=args.time_offset_step,
         axis_candidates=axis_candidates,
+        pose_sources=_pose_sources(args.pose_source),
     )
     outputs = report.get("outputs") or {}
     print(
@@ -67,6 +74,10 @@ def main() -> int:
 
 def _csv_arg(value: str) -> list[str]:
     return [item.strip() for item in str(value).split(",") if item.strip()]
+
+
+def _pose_sources(value: str) -> tuple[str, ...]:
+    return ("initial", "refined") if value == "both" else (value,)
 
 
 if __name__ == "__main__":

@@ -55,6 +55,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--backend-pose3d", default=None)
     ap.add_argument("--camera", type=Path, default=None)
     ap.add_argument("--max-frames", type=int, default=None, help="Limit frames for backend smoke tests.")
+    ap.add_argument("--refinement-profile", default=None, help="Named stage_07 refinement profile from optimization.refinement_profiles.")
     return ap.parse_args()
 
 
@@ -75,6 +76,8 @@ def main() -> int:
         cfg.setdefault("metrabs", {})["max_frames"] = int(args.max_frames)
         cfg.setdefault("wham", {})["max_frames"] = int(args.max_frames)
         cfg.setdefault("rtmw3d", {})["max_frames"] = int(args.max_frames)
+    if args.refinement_profile:
+        cfg.setdefault("optimization", {})["refinement_profile"] = args.refinement_profile
 
     video_field = cfg.get("pipeline", {}).get("default_video_field", "video_sync")
     run_dir = args.out or (repo_root / "monocap_v2" / "runs" / default_run_name(manifest, args.trial))
@@ -97,6 +100,7 @@ def main() -> int:
         "raw_video": trial.get(video_field),
         "mocap_trc": trial.get("mocap_trc"),
         "camera_override": str(args.camera) if args.camera else None,
+        "refinement_profile": args.refinement_profile,
         "preset": args.preset,
         "dry_run": bool(args.dry_run),
         "force": bool(args.force),

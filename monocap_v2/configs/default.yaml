@@ -59,6 +59,143 @@ markers:
     max_marker_jump_m: 0.20
 
 optimization:
+  refinement_profile: null
+  refinement_profiles:
+    joints_static_chain_contact_v1:
+      label: Joints static scale + kinematic chain + contact locking v1
+      version: 1
+      description: >
+        Backend-neutral joints-only refinement profile. Applies subject/static
+        lower-limb bone-length retargeting, kinematic-chain temporal smoothing,
+        and contact-aware foot locking. It does not use mocap/OpenSim/Level A
+        ground truth in the objective or target selection.
+      representation: joints
+      mocap_used_in_objective: false
+      stage_order:
+        - subject_scale
+        - kinematic_chain
+        - contact_foot_locking
+      optimization:
+        subject_scale:
+          enabled: true
+          mode: static_bone
+          static_trial: auto
+          static_trial_priority:
+            - static2
+            - static1
+            - static3
+          static_pose3d_path: null
+          min_scale: 0.75
+          max_scale: 1.35
+          retarget_blend: 1.0
+        kinematic_chain:
+          enabled: true
+          method: moving_average
+          window_frames: 9
+          direction_window_frames: 9
+          root_window_frames: 9
+          smooth_roots: true
+          direction_blend: 1.0
+          output_blend: 1.0
+          max_joint_displacement_m: 0.20
+          savgol_polyorder: 2
+        contact_foot_locking:
+          enabled: true
+          mode: root_translation
+          feet: toes
+          contact_threshold: 0.85
+          min_segment_frames: 3
+          lock_vertical: false
+          blend: 1.0
+          max_correction_m: 0.20
+          smooth_correction_window_frames: 3
+        joints_only:
+          enabled: false
+  camera_time_refinement:
+    enabled: false
+    confidence_threshold: 0.25
+    min_depth_m: 0.1
+    time_search:
+      enabled: true
+      min_offset_s: -0.25
+      max_offset_s: 0.25
+      step_s: 0.02
+    camera_delta:
+      enabled: true
+      max_rotation_deg: 8.0
+      max_translation_m: 0.25
+      max_nfev: 40
+      robust_loss: soft_l1
+      f_scale: 0.05
+      reprojection_weight: 1.0
+      rotation_prior_weight: 0.2
+      translation_prior_weight: 0.5
+      depth_penalty_weight: 2.0
+  subject_scale:
+    enabled: false
+    mode: height_global
+    static_trial: auto
+    static_pose3d_path: null
+    min_scale: 0.75
+    max_scale: 1.35
+    retarget_blend: 1.0
+    global_segments:
+      - left_thigh
+      - right_thigh
+      - left_shank
+      - right_shank
+    target_ratios:
+      pelvis_width: 0.191
+      thigh: 0.245
+      shank: 0.246
+      foot: 0.152
+  temporal_smoothing:
+    enabled: false
+    method: moving_average
+    window_frames: 7
+    passes: 1
+    smooth_root: true
+    preserve_bones: true
+    bone_projection_iterations: 2
+    bone_preservation_blend: 1.0
+    max_joint_displacement_m: 0.15
+    savgol_polyorder: 2
+  reprojection_consistency:
+    enabled: false
+    blend: 0.5
+    confidence_threshold: 0.25
+    min_depth_m: 0.1
+    preserve_bones: true
+    bone_projection_iterations: 2
+    bone_preservation_blend: 1.0
+    max_joint_displacement_m: 0.20
+  pose_prior:
+    enabled: false
+    limit_set: lower_limb_conservative
+    blend: 1.0
+    passes: 1
+    max_joint_displacement_m: 0.20
+  kinematic_chain:
+    enabled: false
+    method: moving_average
+    window_frames: 9
+    direction_window_frames: 9
+    root_window_frames: 9
+    smooth_roots: true
+    direction_blend: 1.0
+    output_blend: 1.0
+    max_joint_displacement_m: 0.20
+    savgol_polyorder: 2
+  contact_foot_locking:
+    enabled: false
+    mode: root_translation
+    feet: toes
+    contact_threshold: 0.85
+    min_segment_frames: 3
+    lock_vertical: false
+    blend: 1.0
+    max_correction_m: 0.20
+    smooth_correction_window_frames: 3
   joints_only:
     enabled: true
     max_nfev: 30
