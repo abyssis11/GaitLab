@@ -66,6 +66,13 @@ trials:
       forces_mot: ${paths.root}/ForceData/static1_forces.mot
       intrinsics_extrinsics: ${paths.root}/VideoData/Session0/Cam2/cameraIntrinsicsExtrinsics.pickle
 
+    - id: static3
+      video_sync: ${paths.root}/VideoData/Session0/Cam1/static1/static1_syncdWithMocap.avi
+      video_raw:  ${paths.root}/VideoData/Session0/Cam1/static1/static1.avi
+      mocap_trc:  ${paths.root}/MarkerData/Mocap/static1.trc
+      forces_mot: ${paths.root}/ForceData/static1_forces.mot
+      intrinsics_extrinsics: ${paths.root}/VideoData/Session0/Cam1/cameraIntrinsicsExtrinsics.pickle
+
   pathological:
     - id: walkingTS1
       video_sync: ${paths.root}/VideoData/Session1/Cam0/walkingTS1/walkingTS1_syncdWithMocap.avi
