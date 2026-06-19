@@ -19,6 +19,7 @@ from monocap_v2.core.reprojection_consistency import apply_reprojection_consiste
 from monocap_v2.core.stage_utils import cached, stage_result
 from monocap_v2.core.subject_scale import apply_subject_scale_to_pose
 from monocap_v2.core.temporal_smoothing import apply_temporal_smoothing_to_pose
+from monocap_v2.core.wham_smpl_root_refinement import apply_wham_smpl_root_refinement
 
 
 STAGE = "stage_07_optimize_pose"
@@ -43,6 +44,7 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
     chain_cfg = optimization_cfg.get("kinematic_chain", {})
     smoothing_cfg = optimization_cfg.get("temporal_smoothing", {})
     foot_lock_cfg = optimization_cfg.get("contact_foot_locking", {})
+    wham_smpl_root_cfg = optimization_cfg.get("wham_smpl_root_refinement", {})
     representation = pose3d.get("representation")
     contacts = _read_contacts(registry)
     pose2d = _read_pose2d(registry)
@@ -56,6 +58,7 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
         kinematic_chain_report = None
         temporal_smoothing_report = None
         contact_foot_locking_report = None
+        wham_smpl_root_refinement_report = None
         if camera_time_cfg.get("enabled", False):
             camera = read_json(registry.get("camera_assumed"))
             refined_pose, camera_time_refinement_report = _maybe_apply_camera_time_refinement(refined_pose, camera, pose2d, camera_time_cfg)
@@ -160,6 +163,35 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
                     temporal_smoothing_report,
                     contact_foot_locking_report,
                 )
+        if wham_smpl_root_cfg.get("enabled", False):
+            refined_pose, wham_smpl_root_refinement_report = _maybe_apply_wham_smpl_root_refinement(
+                registry,
+                refined_pose,
+                cfg,
+                wham_smpl_root_cfg,
+            )
+            refined_pose.setdefault("refinement", {})["wham_smpl_root_refinement"] = wham_smpl_root_refinement_report
+            if wham_smpl_root_refinement_report.get("status") == "ok":
+                refined_pose["refinement"]["status"] = _combined_status(
+                    subject_scale_report,
+                    camera_time_refinement_report,
+                    reprojection_consistency_report,
+                    pose_prior_report,
+                    kinematic_chain_report,
+                    temporal_smoothing_report,
+                    contact_foot_locking_report,
+                    wham_smpl_root_refinement_report,
+                )
+                refined_pose["refinement"]["method"] = _combined_method(
+                    subject_scale_report,
+                    camera_time_refinement_report,
+                    reprojection_consistency_report,
+                    pose_prior_report,
+                    kinematic_chain_report,
+                    temporal_smoothing_report,
+                    contact_foot_locking_report,
+                    wham_smpl_root_refinement_report,
+                )
         _attach_refinement_profile(refined_pose, refinement_profile_report)
         _write_pose(refined_path, refined_pose)
         status = (
@@ -172,9 +204,12 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
                 kinematic_chain_report,
                 temporal_smoothing_report,
                 contact_foot_locking_report,
+                wham_smpl_root_refinement_report,
             )
             else "skipped"
         )
+        if (wham_smpl_root_refinement_report or {}).get("status") == "warning":
+            status = "warning"
         report = stage_result(
             STAGE,
             status,
@@ -182,7 +217,7 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
             representation=representation,
             method=refined_pose.get("refinement", {}).get("method", "passthrough"),
             refinement_profile=refinement_profile_report,
-            reason=refined_pose["refinement"]["reason"],
+            reason=refined_pose.get("refinement", {}).get("reason"),
             camera_time_refinement=camera_time_refinement_report,
             subject_scale=subject_scale_report,
             reprojection_consistency=reprojection_consistency_report,
@@ -190,6 +225,7 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
             kinematic_chain=kinematic_chain_report,
             temporal_smoothing=temporal_smoothing_report,
             contact_foot_locking=contact_foot_locking_report,
+            wham_smpl_root_refinement=wham_smpl_root_refinement_report,
         )
         write_json(report_path, report)
         return report
@@ -598,6 +634,15 @@ def _maybe_apply_contact_foot_locking(pose3d: dict, contacts: dict | None, foot_
     return apply_contact_foot_locking_to_pose(pose3d, contacts, foot_lock_cfg)
 
 
+def _maybe_apply_wham_smpl_root_refinement(
+    registry: ArtifactRegistry,
+    pose3d: dict,
+    run_cfg: dict,
+    wham_smpl_root_cfg: dict,
+) -> tuple[dict, dict]:
+    return apply_wham_smpl_root_refinement(registry, pose3d, run_cfg, wham_smpl_root_cfg)
+
+
 def _activity_weights(activity: str) -> dict[str, Any]:
     path = Path(__file__).resolve().parents[1] / "configs" / "activities.yaml"
     data = read_yaml(path)
@@ -687,6 +732,8 @@ def _ok_report_names(*reports: dict | None) -> list[str]:
             continue
         if report.get("method") == "contact_foot_locking":
             parts.append("contact_foot_locking")
+        elif report.get("method") == "wham_smpl_root_refinement":
+            parts.append("wham_smpl_root_refinement")
         elif report.get("method") == "camera_time_reprojection":
             parts.append("camera_time_refinement")
         elif str(report.get("method") or "").startswith("kinematic_chain"):

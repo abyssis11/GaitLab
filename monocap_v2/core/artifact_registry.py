@@ -29,6 +29,8 @@ ARTIFACTS: dict[str, str] = {
     "opt_stage1_report": "optimization/opt_stage1_report.json",
     "opt_stage2_report": "optimization/opt_stage2_report.json",
     "pose3d_refined": "optimization/pose3d_refined.pkl",
+    "wham_smpl_root_refine_pose": "optimization/wham_smpl_root_refine_pose.pkl",
+    "wham_smpl_root_refine_report": "optimization/wham_smpl_root_refine_report.json",
     "virtual_markers": "markers/virtual_markers.pkl",
     "virtual_markers_qc": "markers/virtual_markers.json",
     "smpl_markers_trc": "markers/smpl_markers.trc",

@@ -176,6 +176,46 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
             f.write(f"- Max correction: `{correction.get('max_m')}` m\n")
             if contact_foot_locking.get("reason"):
                 f.write(f"- Reason: {contact_foot_locking.get('reason')}\n")
+        wham_smpl_root = optimization.get("wham_smpl_root_refinement") or {}
+        if wham_smpl_root:
+            f.write("\n## WHAM SMPL Root Refinement\n\n")
+            f.write(f"- Status: `{wham_smpl_root.get('status')}`\n")
+            f.write(f"- Method: `{wham_smpl_root.get('method')}`\n")
+            f.write(f"- Optimized parameters: `{', '.join(str(item) for item in wham_smpl_root.get('optimized_parameters') or [])}`\n")
+            f.write(f"- Fixed parameters: `{', '.join(str(item) for item in wham_smpl_root.get('fixed_parameters') or [])}`\n")
+            f.write(f"- Mocap used in objective: `{wham_smpl_root.get('mocap_used_in_objective')}`\n")
+            recon = wham_smpl_root.get("initial_reconstruction_error_m") or {}
+            if recon:
+                f.write(
+                    f"- Initial SMPL reconstruction median/max: `{recon.get('median')}` / "
+                    f"`{recon.get('max')}` m\n"
+                )
+            root_delta = wham_smpl_root.get("root_delta") or {}
+            if root_delta:
+                f.write(
+                    f"- Root delta translation max: `{root_delta.get('translation_max_m')}` m; "
+                    f"orientation max: `{root_delta.get('orientation_max_deg')}` deg\n"
+                )
+            body_delta = wham_smpl_root.get("body_pose_delta") or {}
+            if body_delta:
+                f.write(
+                    f"- Body pose delta mean/max: `{body_delta.get('mean_deg')}` / "
+                    f"`{body_delta.get('max_deg')}` deg\n"
+                )
+            before = wham_smpl_root.get("contact_metrics_before") or {}
+            after = wham_smpl_root.get("contact_metrics_after") or {}
+            if before or after:
+                f.write(
+                    f"- Contact horizontal speed before/after: `{before.get('mean_contact_horizontal_speed_mps')}` / "
+                    f"`{after.get('mean_contact_horizontal_speed_mps')}` m/s\n"
+                )
+            consistency = wham_smpl_root.get("smpl_consistency") or {}
+            if consistency:
+                f.write(f"- SMPL consistency: `{consistency.get('status')}` via `{consistency.get('mode')}`\n")
+            if wham_smpl_root.get("reason"):
+                f.write(f"- Reason: {wham_smpl_root.get('reason')}\n")
+            if wham_smpl_root.get("error"):
+                f.write(f"- Error: {wham_smpl_root.get('error')}\n")
         smpl_vis = report["artifacts"].get("smpl_visualization") or {}
         if smpl_vis:
             f.write(f"- SMPL preview: `{smpl_vis.get('status')}` ({smpl_vis.get('frames_rendered')}/{smpl_vis.get('frames_available')} frames)\n")

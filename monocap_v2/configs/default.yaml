@@ -137,6 +137,88 @@ optimization:
           smooth_correction_window_frames: 3
         joints_only:
           enabled: false
+    wham_smpl_root_refine_v1:
+      label: WHAM SMPL root-parameter refinement v1
+      version: 1
+      description: >
+        WHAM/SMPL-safe root refinement profile. Optimizes only SMPL global
+        orientation and camera-local translation while keeping body pose,
+        shape, frame selection, markers, and all mocap/OpenSim/Level A ground
+        truth out of the objective.
+      representation: hybrid
+      mocap_used_in_objective: false
+      stage_order:
+        - wham_smpl_root_refinement
+      optimization:
+        wham_smpl_root_refinement:
+          enabled: true
+          python: /home/denik/miniconda3/envs/monocap-wham/bin/python
+          device: auto
+          max_iterations: 80
+          learning_rate: 0.03
+          contact_threshold: 0.65
+          min_segment_frames: 3
+          feet: toes_and_heels
+          reconstruction_error_warning_m: 0.02
+          max_translation_delta_m: 0.35
+          max_orientation_delta_deg: 15.0
+          optimize_body_pose: false
+          max_body_pose_delta_deg: 8.0
+          allow_passthrough_on_missing_runtime: false
+          weights:
+            translation_prior: 20.0
+            orientation_prior: 5.0
+            translation_smoothness: 2.0
+            orientation_smoothness: 0.5
+            body_pose_prior: 0.0
+            body_pose_smoothness: 0.0
+            contact_velocity: 0.5
+            contact_position: 20.0
+            flat_floor: 5.0
+        joints_only:
+          enabled: false
+    wham_smpl_root_pose_refine_v1:
+      label: WHAM SMPL root + body-pose refinement v1
+      version: 1
+      description: >
+        WHAM/SMPL experimental pose refinement profile. Optimizes SMPL global
+        orientation, camera-local translation, and body pose while keeping SMPL
+        shape, frame selection, markers, and all mocap/OpenSim/Level A ground
+        truth out of the objective. This is diagnostic and more flexible than
+        the root-only WHAM profile.
+      representation: hybrid
+      mocap_used_in_objective: false
+      diagnostic: true
+      stage_order:
+        - wham_smpl_root_refinement
+      optimization:
+        wham_smpl_root_refinement:
+          enabled: true
+          python: /home/denik/miniconda3/envs/monocap-wham/bin/python
+          device: auto
+          max_iterations: 100
+          learning_rate: 0.015
+          contact_threshold: 0.65
+          min_segment_frames: 3
+          feet: toes_and_heels
+          reconstruction_error_warning_m: 0.02
+          max_translation_delta_m: 0.35
+          max_orientation_delta_deg: 15.0
+          optimize_body_pose: true
+          max_body_pose_delta_deg: 8.0
+          allow_passthrough_on_missing_runtime: false
+          weights:
+            translation_prior: 20.0
+            orientation_prior: 5.0
+            translation_smoothness: 2.0
+            orientation_smoothness: 0.5
+            body_pose_prior: 15.0
+            body_pose_smoothness: 0.5
+            contact_velocity: 0.75
+            contact_position: 25.0
+            flat_floor: 5.0
+        joints_only:
+          enabled: false
   camera_time_refinement:
     enabled: false
     confidence_threshold: 0.25
@@ -222,6 +304,31 @@ optimization:
     blend: 1.0
     max_correction_m: 0.20
     smooth_correction_window_frames: 3
+  wham_smpl_root_refinement:
+    enabled: false
+    python: /home/denik/miniconda3/envs/monocap-wham/bin/python
+    device: auto
+    max_iterations: 80
+    learning_rate: 0.03
+    contact_threshold: 0.65
+    min_segment_frames: 3
+    feet: toes_and_heels
+    reconstruction_error_warning_m: 0.02
+    max_translation_delta_m: 0.35
+    max_orientation_delta_deg: 15.0
+    optimize_body_pose: false
+    max_body_pose_delta_deg: 8.0
+    allow_passthrough_on_missing_runtime: false
+    weights:
+      translation_prior: 20.0
+      orientation_prior: 5.0
+      translation_smoothness: 2.0
+      orientation_smoothness: 0.5
+      body_pose_prior: 0.0
+      body_pose_smoothness: 0.0
+      contact_velocity: 0.5
+      contact_position: 20.0
+      flat_floor: 5.0
   joints_only:
     enabled: true
     max_nfev: 30

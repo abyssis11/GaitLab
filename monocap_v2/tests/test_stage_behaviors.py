@@ -184,6 +184,154 @@ def test_stage_07_wham_global_contact_profile_preserves_hybrid_smpl(tmp_path: Pa
     np.testing.assert_allclose(refined["smpl"]["transl"], transl + correction, atol=1e-6)
 
 
+def test_stage_07_wham_smpl_root_profile_uses_worker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry = ArtifactRegistry(tmp_path)
+    registry.ensure_standard_dirs()
+    frames = 3
+    vertices = np.zeros((frames, 5, 3), dtype=np.float32)
+    transl = np.zeros((frames, 3), dtype=np.float32)
+    body_pose = np.zeros((frames, 23, 3), dtype=np.float32)
+    betas = np.zeros((frames, 10), dtype=np.float32)
+    global_orient = np.zeros((frames, 3), dtype=np.float32)
+    pose = {
+        "representation": "hybrid",
+        "backend": "wham",
+        "fps": 30.0,
+        "units": "m",
+        "joint_names": ["pelv"],
+        "joints_3d": np.zeros((frames, 1, 3), dtype=np.float32),
+        "smpl": {
+            "vertices": vertices.copy(),
+            "transl": transl.copy(),
+            "body_pose": body_pose.copy(),
+            "betas": betas.copy(),
+            "global_orient": global_orient.copy(),
+        },
+    }
+    with registry.ensure_parent("pose3d_initial").open("wb") as f:
+        pickle.dump(pose, f)
+
+    def fake_worker(registry_arg, pose_arg, run_cfg_arg, refine_cfg_arg):
+        refined = pickle.loads(pickle.dumps(pose_arg))
+        refined["smpl"]["transl"] = transl + np.array([0.1, 0.0, 0.0], dtype=np.float32)
+        refined["smpl"]["vertices"] = vertices + np.array([0.1, 0.0, 0.0], dtype=np.float32)
+        refined["joints_3d"] = pose_arg["joints_3d"] + np.array([0.1, 0.0, 0.0], dtype=np.float32)
+        report = {
+            "status": "ok",
+            "method": "wham_smpl_root_refinement",
+            "optimized_parameters": ["smpl.transl", "smpl.global_orient"],
+            "fixed_parameters": ["smpl.body_pose", "smpl.betas"],
+            "mocap_used_in_objective": False,
+            "smpl_consistency": {"status": "ok"},
+        }
+        refined["refinement"] = {"status": "ok", "method": "wham_smpl_root_refinement", "wham_smpl_root_refinement": report}
+        return refined, report
+
+    monkeypatch.setattr(stage_07_optimize_pose, "_maybe_apply_wham_smpl_root_refinement", fake_worker)
+    cfg = {
+        "config": {
+            "optimization": {
+                "refinement_profile": "wham_smpl_root_refine_v1",
+                "refinement_profiles": {
+                    "wham_smpl_root_refine_v1": {
+                        "version": 1,
+                        "representation": "hybrid",
+                        "stage_order": ["wham_smpl_root_refinement"],
+                        "mocap_used_in_objective": False,
+                        "optimization": {
+                            "wham_smpl_root_refinement": {"enabled": True},
+                            "joints_only": {"enabled": False},
+                        },
+                    }
+                },
+            }
+        }
+    }
+
+    result = stage_07_optimize_pose.run(tmp_path, cfg, force=True)
+
+    assert result["status"] == "ok"
+    assert result["method"] == "wham_smpl_root_refinement_only"
+    assert result["refinement_profile"]["name"] == "wham_smpl_root_refine_v1"
+    assert result["wham_smpl_root_refinement"]["status"] == "ok"
+    with registry.get("pose3d_refined").open("rb") as f:
+        refined = pickle.load(f)
+    np.testing.assert_allclose(refined["smpl"]["transl"], transl + np.array([0.1, 0.0, 0.0], dtype=np.float32))
+    np.testing.assert_allclose(refined["smpl"]["body_pose"], body_pose)
+    np.testing.assert_allclose(refined["smpl"]["betas"], betas)
+
+
+def test_stage_07_wham_smpl_root_pose_profile_can_change_body_pose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry = ArtifactRegistry(tmp_path)
+    registry.ensure_standard_dirs()
+    frames = 2
+    vertices = np.zeros((frames, 5, 3), dtype=np.float32)
+    body_pose = np.zeros((frames, 23, 3), dtype=np.float32)
+    pose = {
+        "representation": "hybrid",
+        "backend": "wham",
+        "fps": 30.0,
+        "units": "m",
+        "joint_names": ["pelv"],
+        "joints_3d": np.zeros((frames, 1, 3), dtype=np.float32),
+        "smpl": {
+            "vertices": vertices.copy(),
+            "transl": np.zeros((frames, 3), dtype=np.float32),
+            "body_pose": body_pose.copy(),
+            "betas": np.zeros((frames, 10), dtype=np.float32),
+            "global_orient": np.zeros((frames, 3), dtype=np.float32),
+        },
+    }
+    with registry.ensure_parent("pose3d_initial").open("wb") as f:
+        pickle.dump(pose, f)
+
+    def fake_worker(registry_arg, pose_arg, run_cfg_arg, refine_cfg_arg):
+        assert refine_cfg_arg["optimize_body_pose"] is True
+        refined = pickle.loads(pickle.dumps(pose_arg))
+        refined["smpl"]["body_pose"] = body_pose + np.float32(0.01)
+        report = {
+            "status": "ok",
+            "method": "wham_smpl_root_refinement",
+            "optimized_parameters": ["smpl.transl", "smpl.global_orient", "smpl.body_pose"],
+            "fixed_parameters": ["smpl.betas"],
+            "optimize_body_pose": True,
+            "body_pose_delta": {"mean_deg": 0.57, "max_deg": 0.57},
+            "mocap_used_in_objective": False,
+        }
+        refined["refinement"] = {"status": "ok", "method": "wham_smpl_root_refinement", "wham_smpl_root_refinement": report}
+        return refined, report
+
+    monkeypatch.setattr(stage_07_optimize_pose, "_maybe_apply_wham_smpl_root_refinement", fake_worker)
+    cfg = {
+        "config": {
+            "optimization": {
+                "refinement_profile": "wham_smpl_root_pose_refine_v1",
+                "refinement_profiles": {
+                    "wham_smpl_root_pose_refine_v1": {
+                        "version": 1,
+                        "representation": "hybrid",
+                        "stage_order": ["wham_smpl_root_refinement"],
+                        "mocap_used_in_objective": False,
+                        "optimization": {
+                            "wham_smpl_root_refinement": {"enabled": True, "optimize_body_pose": True},
+                            "joints_only": {"enabled": False},
+                        },
+                    }
+                },
+            }
+        }
+    }
+
+    result = stage_07_optimize_pose.run(tmp_path, cfg, force=True)
+
+    assert result["status"] == "ok"
+    assert result["refinement_profile"]["name"] == "wham_smpl_root_pose_refine_v1"
+    assert "smpl.body_pose" in result["wham_smpl_root_refinement"]["optimized_parameters"]
+    with registry.get("pose3d_refined").open("rb") as f:
+        refined = pickle.load(f)
+    assert not np.allclose(refined["smpl"]["body_pose"], body_pose)
+
+
 def test_stage_07_subject_scale_only_when_optimizer_disabled(tmp_path: Path) -> None:
     registry = ArtifactRegistry(tmp_path)
     registry.ensure_standard_dirs()
