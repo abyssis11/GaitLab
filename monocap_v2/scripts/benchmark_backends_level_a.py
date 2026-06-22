@@ -33,6 +33,7 @@ DEFAULT_TRIALS = "walking1,walking2,walking3"
 DEFAULT_BACKENDS = "metrabs,rtmw3d,wham"
 DEFAULT_OPENSIM_PYTHON = "/home/denik/miniconda3/envs/gaitlab/bin/python"
 DEFAULT_WHAM_PYTHON = "/home/denik/miniconda3/envs/monocap-wham/bin/python"
+DEFAULT_SAM3D_PRESET = "opencap_sam3d_body_vith_detector_intrinsics"
 PIPELINE_STAGES = "stage_00_validate_inputs,stage_01_preprocess_video,stage_02_assume_camera,stage_03_pose2d,stage_04_pose3d_initial"
 
 
@@ -50,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--opensim-python", type=Path, default=Path(DEFAULT_OPENSIM_PYTHON))
     ap.add_argument("--wham-python", type=Path, default=Path(DEFAULT_WHAM_PYTHON), help="Python executable for WHAM pipeline subprocesses.")
+    ap.add_argument("--sam3d-preset", default=DEFAULT_SAM3D_PRESET, help="Pipeline preset for the sam3d_body backend.")
     ap.add_argument("--repo-root", type=Path, default=None, help=argparse.SUPPRESS)
     return ap.parse_args()
 
@@ -180,7 +182,7 @@ def _run_pipeline(repo_root: Path, args: argparse.Namespace, backend: str, trial
         "--out",
         str(run_dir),
     ]
-    preset = _backend_preset(backend)
+    preset = _backend_preset(backend, sam3d_preset=getattr(args, "sam3d_preset", DEFAULT_SAM3D_PRESET))
     if preset:
         cmd.extend(["--preset", preset])
     else:
@@ -215,9 +217,11 @@ def _raw_trc_sanity(manifest: dict[str, Any], trial_id: str) -> dict[str, Any]:
         return {"status": "failed", "error": str(exc)}
 
 
-def _backend_preset(backend: str) -> str | None:
+def _backend_preset(backend: str, sam3d_preset: str = DEFAULT_SAM3D_PRESET) -> str | None:
     if backend == "rtmw3d":
         return "opencap_rtmw3d"
+    if backend == "sam3d_body":
+        return sam3d_preset
     if backend == "wham":
         return "opencap_wham"
     return None

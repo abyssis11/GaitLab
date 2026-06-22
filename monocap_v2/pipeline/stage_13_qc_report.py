@@ -18,7 +18,7 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
     state = load_state(run_dir)
     artifacts = _artifact_summaries(registry)
     status = "ok"
-    for key in ["wham_timeline", "smpl_mesh", "marker_placement", "markers", "marker_jump", "trc", "mocap_validation"]:
+    for key in ["wham_timeline", "smpl_mesh", "mesh", "marker_placement", "markers", "marker_jump", "trc", "mocap_validation"]:
         if (artifacts.get(key) or {}).get("status") == "warning":
             status = "warning"
     result = stage_result(STAGE, status, output=str(out_path), summary=str(registry.get("summary_md")))
@@ -42,6 +42,8 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
             f.write(f"- Pose3D backend: `{pose3d.get('backend')}`\n")
             f.write(f"- Pose3D representation: `{pose3d.get('representation')}`\n")
             f.write(f"- SMPL available: `{pose3d.get('has_smpl')}`\n")
+            if pose3d.get("has_mesh") is not None:
+                f.write(f"- Mesh available: `{pose3d.get('has_mesh')}`\n")
             if pose3d.get("source_video"):
                 f.write(f"- Pose3D source video: `{pose3d.get('source_video')}`\n")
         optimization = report["artifacts"].get("optimization_stage2") or {}
@@ -232,6 +234,15 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
             f.write(f"- SMPL mesh marker overlay: `{smpl_mesh.get('marker_overlay_status')}`\n")
             for warning in smpl_mesh.get("warnings") or []:
                 f.write(f"- Warning: {warning}\n")
+        mesh = report["artifacts"].get("mesh") or {}
+        if mesh:
+            f.write(
+                f"- Mesh preview: `{mesh.get('status')}` `{mesh.get('model_type')}` "
+                f"`{mesh.get('render_mode')}` ({mesh.get('frames_rendered')}/{mesh.get('frames_available')} frames)\n"
+            )
+            f.write(f"- Mesh faces: `{mesh.get('faces_rendered')}` / `{mesh.get('faces_available')}`\n")
+            for warning in mesh.get("warnings") or []:
+                f.write(f"- Warning: {warning}\n")
         wham = report["artifacts"].get("wham_timeline") or {}
         if wham:
             timebase = wham.get("timebase") or {}
@@ -372,6 +383,7 @@ def _artifact_summaries(registry: ArtifactRegistry) -> dict:
         "visualization": "visualize_qc",
         "smpl_visualization": "smpl_vertices_qc",
         "smpl_mesh": "smpl_mesh_qc",
+        "mesh": "mesh_qc",
         "marker_placement": "smpl_marker_placement_qc",
         "wham_timeline": "wham_timeline_qc",
         "markers": "virtual_markers_qc",

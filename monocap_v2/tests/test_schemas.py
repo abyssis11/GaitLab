@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from monocap_v2.core.schemas import has_smpl_vertices, validate_pose3d_artifact
+from monocap_v2.core.schemas import has_mesh_vertices, has_smpl_vertices, validate_pose3d_artifact
 
 
 def test_pose3d_joints_schema() -> None:
@@ -45,3 +45,21 @@ def test_pose3d_smpl_vertices_detection() -> None:
     validate_pose3d_artifact(artifact)
     assert has_smpl_vertices(artifact)
 
+
+def test_pose3d_joints_schema_allows_non_smpl_mesh() -> None:
+    artifact = {
+        "representation": "joints",
+        "backend": "sam3d_body",
+        "fps": 30.0,
+        "units": "m",
+        "joint_names": ["pelvis"],
+        "joints_3d": np.zeros((3, 1, 3), dtype=np.float32),
+        "mesh": {
+            "model_type": "mhr",
+            "vertices": np.zeros((3, 4, 3), dtype=np.float32),
+            "faces": np.asarray([[0, 1, 2]], dtype=np.int32),
+        },
+    }
+    validate_pose3d_artifact(artifact)
+    assert has_mesh_vertices(artifact)
+    assert not has_smpl_vertices(artifact)

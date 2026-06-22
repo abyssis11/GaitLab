@@ -37,6 +37,7 @@ POSE3D_BACKENDS = {
     "dummy": "monocap_v2.backends.pose3d_dummy",
     "metrabs": "monocap_v2.backends.pose3d_metrabs",
     "rtmw3d": "monocap_v2.backends.pose3d_rtmw3d",
+    "sam3d_body": "monocap_v2.backends.pose3d_sam3d_body",
     "wham": "monocap_v2.backends.pose3d_wham",
 }
 
@@ -69,4 +70,3 @@ def run_pose3d_backend(
 ) -> dict:
     backend = load_backend("pose3d", name)
     return backend.run_pose3d(video_path, pose2d, camera, subject, cfg)
-

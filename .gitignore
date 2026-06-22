@@ -19,12 +19,15 @@ outputs/
 *.mp4
 config/paths.yaml
 *.pth
+*.ckpt
 models/*.pth
 models/smpl/
+models/sam3d_body/
 models/wham/
 models/vitpose/
 *.h5
 external/WHAM/
+external/sam-3d-body/
 external/ViTPose/
 external/DPVO/
 monocap_v2/runs/

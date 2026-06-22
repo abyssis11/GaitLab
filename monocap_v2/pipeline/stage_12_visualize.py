@@ -58,6 +58,7 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
     outputs: dict[str, str] = {}
     warnings: list[str] = []
     smpl_mesh_report = None
+    generic_mesh_report = None
     marker_placement = None
 
     try:
@@ -137,8 +138,30 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
                     warnings.extend(str(w) for w in marker_placement.get("warnings", []))
                 except Exception as exc:
                     warnings.append(f"SMPL marker placement QC was not written: {exc}")
+        elif _has_mesh_vertices(refined) and (vis_cfg.get("mesh") or {}).get("enabled", True):
+            try:
+                mesh_preview = registry.ensure_parent("mesh_preview")
+                generic_mesh_report = _write_generic_mesh_preview(refined, mesh_preview, cfg)
+                mesh_qc = registry.ensure_parent("mesh_qc")
+                write_json(mesh_qc, generic_mesh_report)
+                outputs["mesh_preview"] = str(mesh_preview)
+                outputs["mesh_qc"] = str(mesh_qc)
+                warnings.extend(str(w) for w in generic_mesh_report.get("warnings", []))
+            except Exception as exc:
+                warnings.append(f"Generic mesh preview was not written: {exc}")
     else:
         warnings.append("Refined pose artifact is missing; only initial pose was visualized.")
+        if _has_mesh_vertices(initial) and (vis_cfg.get("mesh") or {}).get("enabled", True):
+            try:
+                mesh_preview = registry.ensure_parent("mesh_preview")
+                generic_mesh_report = _write_generic_mesh_preview(initial, mesh_preview, cfg)
+                mesh_qc = registry.ensure_parent("mesh_qc")
+                write_json(mesh_qc, generic_mesh_report)
+                outputs["mesh_preview"] = str(mesh_preview)
+                outputs["mesh_qc"] = str(mesh_qc)
+                warnings.extend(str(w) for w in generic_mesh_report.get("warnings", []))
+            except Exception as exc:
+                warnings.append(f"Generic initial mesh preview was not written: {exc}")
 
     contacts_path = registry.get("contacts")
     if contacts_path.exists():
@@ -200,6 +223,8 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
         status = "warning"
     if outputs and smpl_mesh_report and smpl_mesh_report.get("status") == "warning":
         status = "warning"
+    if outputs and generic_mesh_report and generic_mesh_report.get("status") == "warning":
+        status = "warning"
     if outputs and marker_placement and marker_placement.get("status") == "warning":
         status = "warning"
     result = stage_result(
@@ -213,6 +238,7 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
         wham_timeline=wham_timeline,
         marker_jump=marker_jump,
         smpl_mesh=smpl_mesh_report,
+        mesh=generic_mesh_report,
         marker_placement=marker_placement,
     )
     write_json(out_path, result)
@@ -231,6 +257,11 @@ def _has_finite_joints(pose: dict) -> bool:
 
 def _has_smpl_vertices(pose: dict) -> bool:
     vertices = np.asarray((pose.get("smpl") or {}).get("vertices"), dtype=float)
+    return vertices.ndim == 3 and vertices.shape[-1] == 3 and bool(np.isfinite(vertices).any())
+
+
+def _has_mesh_vertices(pose: dict) -> bool:
+    vertices = np.asarray((pose.get("mesh") or {}).get("vertices"), dtype=float)
     return vertices.ndim == 3 and vertices.shape[-1] == 3 and bool(np.isfinite(vertices).any())
 
 
@@ -678,6 +709,124 @@ def _write_smpl_mesh_preview(pose: dict, out_path: Path, cfg: dict, marker_path:
         "marker_frames_aligned": int(marker_frames_used),
         "marker_count": int(marker_count),
         "time_window": window_report,
+        "warnings": warnings,
+    }
+
+
+def _write_generic_mesh_preview(pose: dict, out_path: Path, cfg: dict) -> dict:
+    import cv2
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    vis_cfg = cfg.get("config", {}).get("visualization", {})
+    mesh_cfg = vis_cfg.get("mesh") or {}
+    mesh = pose.get("mesh") or {}
+    vertices = np.asarray(mesh.get("vertices"), dtype=float)
+    if vertices.ndim != 3 or vertices.shape[-1] != 3:
+        raise RuntimeError("Mesh vertices must have shape [T, V, 3].")
+    faces = np.asarray(mesh.get("faces"), dtype=np.int32) if mesh.get("faces") is not None else None
+    warnings: list[str] = []
+    render_mode = "mesh" if faces is not None and faces.ndim == 2 and faces.shape[1] == 3 else "vertex_cloud"
+    if render_mode == "mesh":
+        valid_faces = faces[(faces >= 0).all(axis=1) & (faces < vertices.shape[1]).all(axis=1)]
+        if valid_faces.shape[0] != faces.shape[0]:
+            warnings.append("Dropped out-of-range generic mesh faces.")
+        faces = _decimate_faces(valid_faces, int(mesh_cfg.get("max_faces", 6000)))
+    else:
+        faces = None
+        warnings.append("Generic mesh faces are unavailable; rendered vertex cloud fallback.")
+
+    frame_indices = np.arange(vertices.shape[0], dtype=int)
+    max_frames = int(mesh_cfg.get("max_frames") or vis_cfg.get("smpl_preview_max_frames", 120))
+    if max_frames > 0 and frame_indices.size > max_frames:
+        pick = np.linspace(0, frame_indices.size - 1, max_frames).round().astype(int)
+        frame_indices = frame_indices[pick]
+    vertex_indices = np.arange(vertices.shape[1], dtype=int) if faces is not None else _sample_vertex_indices(
+        vertices.shape[1], int(vis_cfg.get("smpl_preview_max_vertices", 1600))
+    )
+    bounds = _axis_bounds(vertices[frame_indices][:, vertex_indices, :])
+    raw_frame_ids = _pose_raw_frame_ids(pose, vertices.shape[0])
+    width = int(vis_cfg.get("preview_width", 960))
+    height = int(vis_cfg.get("preview_height", 720))
+    fps = float(mesh_cfg.get("preview_fps") or vis_cfg.get("preview_fps") or 30.0)
+    writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    if not writer.isOpened():
+        raise RuntimeError(f"Could not open generic mesh preview writer for {out_path}")
+
+    fig = plt.figure(figsize=(width / 100.0, height / 100.0), dpi=100)
+    canvas = FigureCanvasAgg(fig)
+    ax = fig.add_subplot(111, projection="3d")
+    try:
+        for frame_idx in frame_indices.tolist():
+            frame_vertices = vertices[int(frame_idx)]
+            plot_vertices = _to_plot_coords(frame_vertices)
+            ax.clear()
+            if faces is not None and faces.size:
+                ax.plot_trisurf(
+                    plot_vertices[:, 0],
+                    plot_vertices[:, 1],
+                    plot_vertices[:, 2],
+                    triangles=faces,
+                    color="#9bc4a7",
+                    alpha=0.62,
+                    linewidth=0.03,
+                    edgecolor="#5d7c65",
+                    shade=True,
+                )
+            else:
+                sampled = plot_vertices[vertex_indices]
+                finite = np.isfinite(sampled).all(axis=1)
+                if np.any(finite):
+                    ax.scatter(
+                        sampled[finite, 0],
+                        sampled[finite, 1],
+                        sampled[finite, 2],
+                        s=3.0,
+                        c=_smpl_vertex_colors(sampled[finite]),
+                        alpha=0.72,
+                        depthshade=False,
+                        linewidths=0,
+                    )
+            raw_label = ""
+            if raw_frame_ids.size > frame_idx:
+                raw_label = f" | raw frame {int(raw_frame_ids[int(frame_idx)])}"
+            ax.set_xlim(*bounds["x"])
+            ax.set_ylim(*bounds["z"])
+            ax.set_zlim(*bounds["up"])
+            ax.set_xlabel("X (m)")
+            ax.set_ylabel("Z (m)")
+            ax.set_zlabel("Up (m)")
+            ax.view_init(elev=18, azim=-70)
+            face_label = f"{faces.shape[0]} faces" if faces is not None else f"{vertex_indices.size} vertices"
+            ax.set_title(f"{mesh.get('model_type', 'mesh')} {render_mode} | frame {int(frame_idx):04d}{raw_label} | {face_label}")
+            fig.tight_layout(pad=0.2)
+            canvas.draw()
+            rgba = np.asarray(canvas.buffer_rgba())
+            bgr = cv2.cvtColor(rgba[:, :, :3], cv2.COLOR_RGB2BGR)
+            writer.write(bgr)
+    finally:
+        writer.release()
+        plt.close(fig)
+
+    return {
+        "stage": STAGE,
+        "status": "warning" if warnings else "ok",
+        "output": str(out_path),
+        "render_mode": render_mode,
+        "backend": pose.get("backend"),
+        "representation": pose.get("representation"),
+        "model_type": mesh.get("model_type"),
+        "coordinate_space": mesh.get("coordinate_space") or "unknown",
+        "units": pose.get("units", "m"),
+        "frames_available": int(vertices.shape[0]),
+        "frames_rendered": int(frame_indices.size),
+        "vertices_available": int(vertices.shape[1]),
+        "vertices_rendered": int(vertex_indices.size),
+        "faces_available": int(np.asarray(mesh.get("faces")).shape[0]) if mesh.get("faces") is not None else 0,
+        "faces_rendered": int(faces.shape[0]) if faces is not None else 0,
         "warnings": warnings,
     }
 

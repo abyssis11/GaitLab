@@ -45,6 +45,8 @@ ARTIFACTS: dict[str, str] = {
     "smpl_vertices_qc": "reports/smpl_vertices_qc.json",
     "smpl_mesh_preview": "reports/smpl_mesh_preview.mp4",
     "smpl_mesh_qc": "reports/smpl_mesh_qc.json",
+    "mesh_preview": "reports/mesh_preview.mp4",
+    "mesh_qc": "reports/mesh_qc.json",
     "smpl_marker_placement_qc": "reports/smpl_marker_placement_qc.json",
     "smpl_marker_placement_plot": "reports/smpl_marker_placement_lower_limb.png",
     "smpl_marker_placement_preview": "reports/smpl_marker_placement_preview.mp4",

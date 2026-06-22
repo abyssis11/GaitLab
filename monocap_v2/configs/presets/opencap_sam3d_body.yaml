@@ -1,0 +1,46 @@
+pipeline:
+  default_video_field: video_sync
+  stop_on_stage_error: true
+
+backends:
+  pose2d: none
+  pose3d: sam3d_body
+  contacts: heuristic
+
+sam3d_body:
+  python: /home/denik/miniconda3/envs/monocap-sam3d-body/bin/python
+  repo_path: external/sam-3d-body
+  checkpoint_path: models/sam3d_body/sam-3d-body-dinov3/model.ckpt
+  mhr_model_path: models/sam3d_body/sam-3d-body-dinov3/assets/mhr_model.pt
+  video_field: video_sync
+  output_dir_name: sam3d_body_work
+  device: auto
+  bbox_strategy: detector
+  detector_name: vitdet
+  detector_path: models/sam3d_body/detectors/vitdet_h
+  fov_name: moge2
+  segmentor_name: null
+  bbox_threshold: 0.8
+  use_mask: false
+  inference_type: full
+  max_frames: null
+  clear_cache_on_force: true
+
+optimization:
+  joints_only:
+    enabled: false
+
+opensim:
+  enabled: false
+
+kinetics:
+  enabled: false
+
+visualization:
+  enabled: true
+  preview_fps: 30
+  preview_width: 960
+  preview_height: 720
+  mesh:
+    enabled: true
+    max_faces: 6000

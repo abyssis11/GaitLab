@@ -30,8 +30,27 @@ def validate_pose3d_artifact(artifact: dict[str, Any]) -> None:
     if representation in {"smpl", "hybrid"} and "smpl" not in artifact:
         raise ValueError("SMPL/hybrid pose3d artifact missing smpl payload")
 
+    mesh = artifact.get("mesh")
+    if mesh is not None:
+        if not isinstance(mesh, dict):
+            raise ValueError("pose3d mesh payload must be a mapping")
+        vertices = mesh.get("vertices")
+        if vertices is not None:
+            mesh_vertices = np.asarray(vertices)
+            if mesh_vertices.ndim != 3 or mesh_vertices.shape[-1] != 3:
+                raise ValueError("mesh.vertices must have shape [T, V, 3]")
+        faces = mesh.get("faces")
+        if faces is not None:
+            mesh_faces = np.asarray(faces)
+            if mesh_faces.ndim != 2 or mesh_faces.shape[-1] != 3:
+                raise ValueError("mesh.faces must have shape [F, 3]")
+
 
 def has_smpl_vertices(artifact: dict[str, Any]) -> bool:
     smpl = artifact.get("smpl")
     return isinstance(smpl, dict) and smpl.get("vertices") is not None
 
+
+def has_mesh_vertices(artifact: dict[str, Any]) -> bool:
+    mesh = artifact.get("mesh")
+    return isinstance(mesh, dict) and mesh.get("vertices") is not None

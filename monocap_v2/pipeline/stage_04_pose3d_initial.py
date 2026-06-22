@@ -47,12 +47,25 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
         "finite_ratio": float(np.isfinite(joints).mean()),
         "has_smpl": "smpl" in artifact,
         "has_smpl_vertices": bool(isinstance(artifact.get("smpl"), dict) and artifact["smpl"].get("vertices") is not None),
+        "has_mesh": "mesh" in artifact,
+        "has_mesh_vertices": bool(isinstance(artifact.get("mesh"), dict) and artifact["mesh"].get("vertices") is not None),
         "source_video": artifact.get("source_video"),
         "backend_meta": artifact.get("backend_meta", {}),
         "pose2d_written": pose2d_written,
     }
     if artifact.get("backend") == "wham":
         qc["wham_timebase"] = wham_timebase_report(artifact, cfg)
+    if artifact.get("backend") == "sam3d_body":
+        meta = artifact.get("backend_meta") or {}
+        canonical = meta.get("canonical_joint_indices") or {}
+        qc["canonical_joint_coverage"] = {
+            "configured": list(canonical.keys()),
+            "available": [name for name in canonical if name in artifact.get("joint_names", [])],
+            "missing": [name for name in canonical if name not in artifact.get("joint_names", [])],
+            "selected_indices": canonical,
+            "mapping_source": meta.get("mapping_source"),
+            "mapping_note": meta.get("mapping_note"),
+        }
     write_json(registry.ensure_parent("pose3d_initial_qc"), qc)
     return stage_result(STAGE, "ok", output=str(out_path), backend=artifact["backend"], representation=artifact["representation"])
 

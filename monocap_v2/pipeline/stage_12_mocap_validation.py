@@ -121,7 +121,7 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
     }
     _write_series(Path(outputs["mocap_validation_series"]), initial_series, refined_series)
     _write_joint_error_plot(initial_report, refined_report, Path(outputs["mocap_joint_errors_plot"]))
-    _write_foot_trajectories_plot(refined_series, Path(outputs["mocap_foot_trajectories_plot"]))
+    plot_warnings = _write_foot_trajectories_plot(refined_series, Path(outputs["mocap_foot_trajectories_plot"]))
     _write_segment_lengths_plot(refined_report, Path(outputs["mocap_segment_lengths_plot"]))
     _write_lower_limb_overlay(
         refined_series,
@@ -143,6 +143,7 @@ def run(run_dir: Path, cfg: dict, force: bool = False) -> dict:
     warnings = list(transform_qc.get("warnings") or [])
     warnings.extend(str(w) for w in initial_report.get("warnings") or [])
     warnings.extend(str(w) for w in refined_report.get("warnings") or [])
+    warnings.extend(plot_warnings)
     warnings.extend(str(w) for w in mocap_only_native.get("warnings") or [])
     warnings.extend(str(w) for w in marker_comparison.get("warnings") or [])
     warnings = list(dict.fromkeys(warnings))
@@ -223,11 +224,34 @@ def _write_joint_error_plot(initial: dict, refined: dict, path: Path) -> None:
     plt.close(fig)
 
 
-def _write_foot_trajectories_plot(series: dict[str, np.ndarray], path: Path) -> None:
+def _write_foot_trajectories_plot(series: dict[str, np.ndarray], path: Path) -> list[str]:
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+    required = ["time_s"]
+    for side in ("left", "right"):
+        required.extend(
+            [
+                f"{side}_foot_prediction_height_m",
+                f"{side}_foot_mocap_height_m",
+                f"{side}_foot_prediction_speed_mps",
+                f"{side}_foot_mocap_speed_mps",
+            ]
+        )
+    missing = [key for key in required if key not in series]
+    if missing:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.axis("off")
+        message = "Foot trajectory plot unavailable.\nMissing series keys:\n" + "\n".join(missing[:8])
+        if len(missing) > 8:
+            message += f"\n... and {len(missing) - 8} more"
+        ax.text(0.02, 0.95, message, va="top", ha="left", fontsize=10)
+        fig.tight_layout()
+        fig.savefig(path, dpi=140)
+        plt.close(fig)
+        return [f"Foot trajectory plot skipped because required series keys are missing: {', '.join(missing)}"]
 
     time = np.asarray(series["time_s"], dtype=float)
     fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
@@ -246,6 +270,7 @@ def _write_foot_trajectories_plot(series: dict[str, np.ndarray], path: Path) -> 
     fig.tight_layout()
     fig.savefig(path, dpi=140)
     plt.close(fig)
+    return []
 
 
 def _write_segment_lengths_plot(report: dict, path: Path) -> None:

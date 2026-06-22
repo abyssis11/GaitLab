@@ -32,7 +32,7 @@ OPTIONAL_JOINTS = ["left_mtp", "right_mtp"]
 # while the camera-space backends here report image-like coordinates with +Y
 # downward and +Z depth, so use an OpenSim-Y-up conversion rather than the
 # older Z-up camera_to_eval helper.
-BACKEND_AXIS_MAP = {"metrabs": "x,-y,z", "wham": "x,-y,z", "rtmw3d": "x,-y,z"}
+BACKEND_AXIS_MAP = {"metrabs": "x,-y,z", "wham": "x,-y,z", "rtmw3d": "x,-y,z", "sam3d_body": "x,-y,z"}
 DEFAULT_ROOT_MODE = "hip_midpoint"
 TIE_THRESHOLD_MM = 5.0
 

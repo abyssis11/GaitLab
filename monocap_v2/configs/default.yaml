@@ -39,6 +39,38 @@ rtmw3d:
   export_trc: false
   clear_cache_on_force: true
 
+sam3d_body:
+  python: /home/denik/miniconda3/envs/monocap-sam3d-body/bin/python
+  repo_path: external/sam-3d-body
+  checkpoint_path: models/sam3d_body/sam-3d-body-dinov3/model.ckpt
+  mhr_model_path: models/sam3d_body/sam-3d-body-dinov3/assets/mhr_model.pt
+  video_field: video_sync
+  output_dir_name: sam3d_body_work
+  device: auto
+  bbox_strategy: detector
+  detector_name: vitdet
+  detector_path: models/sam3d_body/detectors/vitdet_h
+  fov_name: moge2
+  fov_path: ""
+  use_camera_intrinsics: false
+  segmentor_name: null
+  segmentor_path: ""
+  bbox_threshold: 0.8
+  use_mask: false
+  inference_type: full
+  max_frames: null
+  clear_cache_on_force: true
+  canonical_joint_indices:
+    left_hip: 9
+    right_hip: 10
+    left_knee: 11
+    right_knee: 12
+    left_ankle: 13
+    right_ankle: 14
+    left_mtp: 15
+    right_mtp: 18
+  mapping_note: Official SAM3D MHR70 lower-limb keypoint mapping; pelvis is derived downstream from the hip midpoint.
+
 representations:
   internal_units: m
   allow_joints_only: true

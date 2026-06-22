@@ -1,0 +1,24 @@
+backends:
+  pose2d: none
+  pose3d: sam3d_body
+  contacts: heuristic
+
+sam3d_body:
+  checkpoint_path: models/sam3d_body/sam-3d-body-vith/model.ckpt
+  mhr_model_path: models/sam3d_body/sam-3d-body-vith/assets/mhr_model.pt
+  video_field: video_sync
+  bbox_strategy: detector
+  detector_name: vitdet
+  detector_path: models/sam3d_body/detectors/vitdet_h
+  fov_name: moge2
+  segmentor_name: null
+
+opensim:
+  enabled: false
+
+kinetics:
+  enabled: false
+
+visualization:
+  mesh:
+    enabled: true

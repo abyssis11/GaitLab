@@ -76,6 +76,7 @@ def main() -> int:
         cfg.setdefault("metrabs", {})["max_frames"] = int(args.max_frames)
         cfg.setdefault("wham", {})["max_frames"] = int(args.max_frames)
         cfg.setdefault("rtmw3d", {})["max_frames"] = int(args.max_frames)
+        cfg.setdefault("sam3d_body", {})["max_frames"] = int(args.max_frames)
     if args.refinement_profile:
         cfg.setdefault("optimization", {})["refinement_profile"] = args.refinement_profile
 
